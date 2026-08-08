@@ -1,1 +1,476 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+/* ============================================================
+   PERSONAARENA — NEOMORPHISM DESIGN SYSTEM
+   ============================================================
+   A dark-mode neomorphic UI with soft depth, warm accents,
+   and glassmorphism touches. NOT the generic AI look.
+   ============================================================ */
+
+@theme {
+  --color-bg-base: #1a1a2e;
+  --color-bg-surface: #1f1f38;
+  --color-bg-raised: #252545;
+  --color-bg-sunken: #151528;
+  --color-bg-glass: rgba(37, 37, 69, 0.6);
+
+  --color-text-primary: #e8e6f0;
+  --color-text-secondary: #9b97b0;
+  --color-text-muted: #6b6785;
+
+  --color-accent: #7c5bf5;
+  --color-accent-soft: #9b7dff;
+  --color-accent-glow: rgba(124, 91, 245, 0.25);
+
+  --color-warm: #f59e42;
+  --color-warm-soft: #ffb86b;
+
+  --color-success: #4ade80;
+  --color-danger: #f87171;
+  --color-info: #60a5fa;
+
+  --color-neo-light: rgba(255, 255, 255, 0.04);
+  --color-neo-dark: rgba(0, 0, 0, 0.5);
+
+  --shadow-neo-out:
+    6px 6px 14px rgba(0, 0, 0, 0.45),
+    -6px -6px 14px rgba(255, 255, 255, 0.03);
+  --shadow-neo-in:
+    inset 4px 4px 10px rgba(0, 0, 0, 0.4),
+    inset -4px -4px 10px rgba(255, 255, 255, 0.02);
+  --shadow-neo-sm:
+    3px 3px 8px rgba(0, 0, 0, 0.35),
+    -3px -3px 8px rgba(255, 255, 255, 0.02);
+  --shadow-glow:
+    0 0 20px rgba(124, 91, 245, 0.2),
+    0 0 60px rgba(124, 91, 245, 0.1);
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+}
+
+
+/* ============================================================
+   BASE STYLES
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-family: 'Inter', -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Ambient background glow */
+body::before {
+  content: '';
+  position: fixed;
+  top: -40%;
+  left: -20%;
+  width: 70%;
+  height: 70%;
+  background: radial-gradient(
+    circle,
+    rgba(124, 91, 245, 0.06) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  bottom: -30%;
+  right: -15%;
+  width: 60%;
+  height: 60%;
+  background: radial-gradient(
+    circle,
+    rgba(245, 158, 66, 0.04) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+
+h1, h2, h3, h4 {
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-warm));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+
+/* ============================================================
+   NEOMORPHIC COMPONENTS
+   ============================================================ */
+
+.neo-card {
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-neo-out);
+  border: 1px solid var(--color-neo-light);
+  padding: 1.5rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neo-card:hover {
+  box-shadow:
+    8px 8px 18px rgba(0, 0, 0, 0.5),
+    -8px -8px 18px rgba(255, 255, 255, 0.04);
+  transform: translateY(-2px);
+}
+
+.neo-card-flat {
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-neo-sm);
+  border: 1px solid var(--color-neo-light);
+  padding: 1.5rem;
+}
+
+.neo-inset {
+  background: var(--color-bg-sunken);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-neo-in);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  padding: 1rem;
+}
+
+.neo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.75rem;
+  border-radius: var(--radius-full);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+}
+
+.neo-button-primary {
+  background: linear-gradient(135deg, var(--color-accent), #6344d5);
+  color: white;
+  box-shadow:
+    0 4px 15px rgba(124, 91, 245, 0.35),
+    var(--shadow-neo-sm);
+}
+
+.neo-button-primary:hover {
+  box-shadow:
+    0 6px 25px rgba(124, 91, 245, 0.5),
+    var(--shadow-neo-out);
+  transform: translateY(-2px);
+}
+
+.neo-button-primary:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-neo-in);
+}
+
+.neo-button-secondary {
+  background: var(--color-bg-raised);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-neo-sm);
+  border: 1px solid var(--color-neo-light);
+}
+
+.neo-button-secondary:hover {
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-neo-out);
+  transform: translateY(-1px);
+}
+
+.neo-button-ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  box-shadow: none;
+}
+
+.neo-button-ghost:hover {
+  color: var(--color-text-primary);
+  background: var(--color-neo-light);
+}
+
+.neo-button-danger {
+  background: linear-gradient(135deg, var(--color-danger), #dc2626);
+  color: white;
+  box-shadow: 0 4px 15px rgba(248, 113, 113, 0.25);
+}
+
+.neo-input {
+  width: 100%;
+  padding: 0.875rem 1.25rem;
+  background: var(--color-bg-sunken);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-neo-in);
+  color: var(--color-text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.9375rem;
+  outline: none;
+  transition: all 0.25s ease;
+}
+
+.neo-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.neo-input:focus {
+  border-color: var(--color-accent);
+  box-shadow:
+    var(--shadow-neo-in),
+    0 0 0 3px var(--color-accent-glow);
+}
+
+.neo-textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.6;
+}
+
+.neo-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%239b97b0' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  background-size: 1.25rem;
+  padding-right: 3rem;
+}
+
+.neo-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.neo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.neo-badge-accent {
+  background: var(--color-accent-glow);
+  color: var(--color-accent-soft);
+  border: 1px solid rgba(124, 91, 245, 0.2);
+}
+
+.neo-badge-warm {
+  background: rgba(245, 158, 66, 0.15);
+  color: var(--color-warm-soft);
+  border: 1px solid rgba(245, 158, 66, 0.2);
+}
+
+.neo-badge-success {
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--color-success);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+
+/* ============================================================
+   GLASS MORPHISM
+   ============================================================ */
+
+.glass {
+  background: var(--color-bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+
+/* ============================================================
+   PROGRESS & SCORE BARS
+   ============================================================ */
+
+.score-bar-track {
+  width: 100%;
+  height: 8px;
+  background: var(--color-bg-sunken);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-neo-in);
+  overflow: hidden;
+}
+
+.score-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-soft));
+  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.score-bar-fill-warm {
+  background: linear-gradient(90deg, var(--color-warm), var(--color-warm-soft));
+}
+
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 10px var(--color-accent-glow); }
+  50% { box-shadow: 0 0 25px var(--color-accent-glow), 0 0 50px rgba(124, 91, 245, 0.1); }
+}
+
+@keyframes typing {
+  0%, 60%, 100% { opacity: 0.3; }
+  30% { opacity: 1; }
+}
+
+.animate-in {
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+.animate-slide-left {
+  animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-right {
+  animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2s infinite;
+}
+
+/* Stagger children */
+.stagger-children > * {
+  opacity: 0;
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.2s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.3s; }
+
+
+/* ============================================================
+   TYPING INDICATOR
+   ============================================================ */
+
+.typing-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  animation: typing 1.4s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+
+/* ============================================================
+   LAYOUT UTILITIES
+   ============================================================ */
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.page {
+  min-height: 100vh;
+  padding-top: 5rem;
+  padding-bottom: 3rem;
+}
+
+/* ============================================================
+   SCROLLBAR
+   ============================================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-raised);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
