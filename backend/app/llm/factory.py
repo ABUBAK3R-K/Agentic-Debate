@@ -11,8 +11,11 @@ def get_llm_provider() -> LLMProvider:
     if provider_name == "openai":
         from app.llm.openai_provider import OpenAIProvider
         return OpenAIProvider()
+    elif provider_name == "gemini":
+        from app.llm.gemini_provider import GeminiProvider
+        return GeminiProvider()
     else:
         raise ValueError(
             f"Unknown LLM provider: '{provider_name}'. "
-            "Supported: openai"
+            "Supported: openai, gemini"
         )
