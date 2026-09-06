@@ -1,476 +1,228 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 @import "tailwindcss";
 
-/* ============================================================
-   PERSONAARENA — NEOMORPHISM DESIGN SYSTEM
-   ============================================================
-   A dark-mode neomorphic UI with soft depth, warm accents,
-   and glassmorphism touches. NOT the generic AI look.
-   ============================================================ */
+/* ==========================================================================
+   PersonaArena — a live debate broadcast.
+   Two podiums, one aisle between them, a verdict at the end.
+   ========================================================================== */
 
 @theme {
-  --color-bg-base: #1a1a2e;
-  --color-bg-surface: #1f1f38;
-  --color-bg-raised: #252545;
-  --color-bg-sunken: #151528;
-  --color-bg-glass: rgba(37, 37, 69, 0.6);
+  --color-stage: #12151C;      /* page ground — deep ink, not black */
+  --color-panel: #1B1F29;      /* podium surfaces, transcript columns */
+  --color-for: #E8A33D;        /* the FOR position — warm amber */
+  --color-against: #6C6FE0;    /* the AGAINST position — cool indigo */
+  --color-text: #EDEAE2;       /* warm off-white */
+  --color-text-muted: #8B8F9C; /* meta, timestamps, the losing side */
 
-  --color-text-primary: #e8e6f0;
-  --color-text-secondary: #9b97b0;
-  --color-text-muted: #6b6785;
-
-  --color-accent: #7c5bf5;
-  --color-accent-soft: #9b7dff;
-  --color-accent-glow: rgba(124, 91, 245, 0.25);
-
-  --color-warm: #f59e42;
-  --color-warm-soft: #ffb86b;
-
-  --color-success: #4ade80;
-  --color-danger: #f87171;
-  --color-info: #60a5fa;
-
-  --color-neo-light: rgba(255, 255, 255, 0.04);
-  --color-neo-dark: rgba(0, 0, 0, 0.5);
-
-  --shadow-neo-out:
-    6px 6px 14px rgba(0, 0, 0, 0.45),
-    -6px -6px 14px rgba(255, 255, 255, 0.03);
-  --shadow-neo-in:
-    inset 4px 4px 10px rgba(0, 0, 0, 0.4),
-    inset -4px -4px 10px rgba(255, 255, 255, 0.02);
-  --shadow-neo-sm:
-    3px 3px 8px rgba(0, 0, 0, 0.35),
-    -3px -3px 8px rgba(255, 255, 255, 0.02);
-  --shadow-glow:
-    0 0 20px rgba(124, 91, 245, 0.2),
-    0 0 60px rgba(124, 91, 245, 0.1);
-
-  --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
-  --radius-xl: 32px;
-  --radius-full: 9999px;
+  --font-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
 }
 
+:root {
+  /* Positions carry colour; people never do. The same friend argues FOR in
+     one debate and AGAINST in the next, and the colour tracks the stance. */
+  --for: #E8A33D;
+  --against: #6C6FE0;
+  /* A lighter indigo for small text only. #6C6FE0 on --stage is 4.42:1,
+     which clears AA for large display type but not for body copy;
+     this one is 6.8:1. Amber is 8.6:1 and needs no lighter twin. */
+  --against-text: #9093F0;
 
-/* ============================================================
-   BASE STYLES
-   ============================================================ */
+  --stage: #12151C;
+  --panel: #1B1F29;
+  --text: #EDEAE2;
+  --text-muted: #8B8F9C;       /* 5.8:1 on --stage, 5.1:1 on --panel */
+  --rule: #2A2F3C;
+  /* Errors need to read as errors without borrowing a position colour —
+     amber and indigo mean FOR and AGAINST and nothing else. 6.1:1 on stage. */
+  --alert: #E4726A;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+  /* One strong ease-out, used everywhere. Built-in easings are too weak. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  --aisle-width: 1px;
+  --measure: 62ch;             /* argument text stays comfortable to read */
+
+  color-scheme: dark;
 }
 
-html {
-  font-family: 'Inter', -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  scroll-behavior: smooth;
+* { box-sizing: border-box; }
+
+html, body, #root {
+  min-height: 100%;
 }
 
 body {
-  background: var(--color-bg-base);
-  color: var(--color-text-primary);
-  min-height: 100vh;
-  overflow-x: hidden;
+  margin: 0;
+  background: var(--stage);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Ambient background glow */
-body::before {
-  content: '';
-  position: fixed;
-  top: -40%;
-  left: -20%;
-  width: 70%;
-  height: 70%;
-  background: radial-gradient(
-    circle,
-    rgba(124, 91, 245, 0.06) 0%,
-    transparent 70%
-  );
-  pointer-events: none;
-  z-index: 0;
-}
-body::after {
-  content: '';
-  position: fixed;
-  bottom: -30%;
-  right: -15%;
-  width: 60%;
-  height: 60%;
-  background: radial-gradient(
-    circle,
-    rgba(245, 158, 66, 0.04) 0%,
-    transparent 70%
-  );
-  pointer-events: none;
-  z-index: 0;
-}
-
-#root {
-  position: relative;
-  z-index: 1;
-}
-
-
-/* ============================================================
-   TYPOGRAPHY
-   ============================================================ */
-
-h1, h2, h3, h4 {
-  font-family: 'Space Grotesk', 'Inter', sans-serif;
+h1, h2, h3 {
+  font-family: var(--font-display);
   font-weight: 700;
-  letter-spacing: -0.02em;
+  line-height: 0.95;
+  letter-spacing: 0.01em;
+  margin: 0;
 }
 
-.text-gradient {
-  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-warm));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+p { margin: 0; }
+
+/* --------------------------------------------------------------------------
+   Focus — visible on everything interactive, on every surface.
+   -------------------------------------------------------------------------- */
+
+:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
+/* --------------------------------------------------------------------------
+   Position binding. Every coloured thing on a debate screen inherits from a
+   [data-position] ancestor, so nothing hardcodes amber or indigo.
+   -------------------------------------------------------------------------- */
 
-/* ============================================================
-   NEOMORPHIC COMPONENTS
-   ============================================================ */
-
-.neo-card {
-  background: var(--color-bg-surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-neo-out);
-  border: 1px solid var(--color-neo-light);
-  padding: 1.5rem;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+[data-position="FOR"] {
+  --position: var(--for);
+  --position-text: var(--for);
 }
 
-.neo-card:hover {
-  box-shadow:
-    8px 8px 18px rgba(0, 0, 0, 0.5),
-    -8px -8px 18px rgba(255, 255, 255, 0.04);
-  transform: translateY(-2px);
+[data-position="AGAINST"] {
+  --position: var(--against);
+  --position-text: var(--against-text);
 }
 
-.neo-card-flat {
-  background: var(--color-bg-surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-neo-sm);
-  border: 1px solid var(--color-neo-light);
-  padding: 1.5rem;
+/* The losing side of a verdict drops out of the colour system entirely. */
+[data-defeated="true"] {
+  --position: var(--text-muted);
+  --position-text: var(--text-muted);
 }
 
-.neo-inset {
-  background: var(--color-bg-sunken);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-neo-in);
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  padding: 1rem;
+/* --------------------------------------------------------------------------
+   Type
+   -------------------------------------------------------------------------- */
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 0.92;
+  letter-spacing: 0.01em;
 }
 
-.neo-button {
+.meta {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+.argument {
+  max-width: var(--measure);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+/* --------------------------------------------------------------------------
+   Controls
+   -------------------------------------------------------------------------- */
+
+.field {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: var(--stage);
+  border: 1px solid var(--rule);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.field::placeholder { color: var(--text-muted); }
+.field:focus-visible { border-color: var(--text-muted); }
+
+textarea.field { resize: vertical; min-height: 8rem; }
+
+.button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.75rem;
-  border-radius: var(--radius-full);
-  font-family: 'Inter', sans-serif;
+  padding: 0.7rem 1.4rem;
+  border: 1px solid var(--text);
+  background: var(--text);
+  color: var(--stage);
+  font-family: var(--font-body);
   font-weight: 600;
-  font-size: 0.875rem;
-  letter-spacing: 0.02em;
-  border: none;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  text-decoration: none;
-}
-
-.neo-button-primary {
-  background: linear-gradient(135deg, var(--color-accent), #6344d5);
-  color: white;
-  box-shadow:
-    0 4px 15px rgba(124, 91, 245, 0.35),
-    var(--shadow-neo-sm);
-}
-
-.neo-button-primary:hover {
-  box-shadow:
-    0 6px 25px rgba(124, 91, 245, 0.5),
-    var(--shadow-neo-out);
-  transform: translateY(-2px);
-}
-
-.neo-button-primary:active {
-  transform: translateY(0);
-  box-shadow: var(--shadow-neo-in);
-}
-
-.neo-button-secondary {
-  background: var(--color-bg-raised);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-neo-sm);
-  border: 1px solid var(--color-neo-light);
-}
-
-.neo-button-secondary:hover {
-  background: var(--color-bg-surface);
-  box-shadow: var(--shadow-neo-out);
-  transform: translateY(-1px);
-}
-
-.neo-button-ghost {
-  background: transparent;
-  color: var(--color-text-secondary);
-  box-shadow: none;
-}
-
-.neo-button-ghost:hover {
-  color: var(--color-text-primary);
-  background: var(--color-neo-light);
-}
-
-.neo-button-danger {
-  background: linear-gradient(135deg, var(--color-danger), #dc2626);
-  color: white;
-  box-shadow: 0 4px 15px rgba(248, 113, 113, 0.25);
-}
-
-.neo-input {
-  width: 100%;
-  padding: 0.875rem 1.25rem;
-  background: var(--color-bg-sunken);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-neo-in);
-  color: var(--color-text-primary);
-  font-family: 'Inter', sans-serif;
   font-size: 0.9375rem;
-  outline: none;
-  transition: all 0.25s ease;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
-.neo-input::placeholder {
-  color: var(--color-text-muted);
+.button:hover:not(:disabled) { background: transparent; color: var(--text); }
+.button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.button-quiet {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--rule);
 }
 
-.neo-input:focus {
-  border-color: var(--color-accent);
-  box-shadow:
-    var(--shadow-neo-in),
-    0 0 0 3px var(--color-accent-glow);
+.button-quiet:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--text-muted);
 }
 
-.neo-textarea {
-  resize: vertical;
-  min-height: 120px;
-  line-height: 1.6;
+/* --------------------------------------------------------------------------
+   The live caret that trails streaming text. Not an entrance animation —
+   it marks the point where the model is currently writing.
+   -------------------------------------------------------------------------- */
+
+.caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  margin-left: 0.1em;
+  vertical-align: -0.15em;
+  background: var(--position-text, var(--text-muted));
+  animation: caret-blink 1.1s steps(2, start) infinite;
 }
 
-.neo-select {
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%239b97b0' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 1rem center;
-  background-size: 1.25rem;
-  padding-right: 3rem;
+@keyframes caret-blink { to { opacity: 0; } }
+
+/* --------------------------------------------------------------------------
+   The aisle. Two sides, a real rule between them, stacking on narrow screens
+   with the rule turned horizontal.
+   -------------------------------------------------------------------------- */
+
+.aisle {
+  display: grid;
+  grid-template-columns: 1fr var(--aisle-width) 1fr;
+  align-items: stretch;
+  gap: 0;
 }
 
-.neo-label {
-  display: block;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  margin-bottom: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.aisle-side {
+  min-width: 0;
+  padding: 0 clamp(1rem, 3vw, 2.5rem);
 }
 
-.neo-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.85rem;
-  border-radius: var(--radius-full);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+.aisle-rule {
+  background: var(--rule);
 }
 
-.neo-badge-accent {
-  background: var(--color-accent-glow);
-  color: var(--color-accent-soft);
-  border: 1px solid rgba(124, 91, 245, 0.2);
-}
-
-.neo-badge-warm {
-  background: rgba(245, 158, 66, 0.15);
-  color: var(--color-warm-soft);
-  border: 1px solid rgba(245, 158, 66, 0.2);
-}
-
-.neo-badge-success {
-  background: rgba(74, 222, 128, 0.12);
-  color: var(--color-success);
-  border: 1px solid rgba(74, 222, 128, 0.2);
-}
-
-
-/* ============================================================
-   GLASS MORPHISM
-   ============================================================ */
-
-.glass {
-  background: var(--color-bg-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-
-/* ============================================================
-   PROGRESS & SCORE BARS
-   ============================================================ */
-
-.score-bar-track {
-  width: 100%;
-  height: 8px;
-  background: var(--color-bg-sunken);
-  border-radius: var(--radius-full);
-  box-shadow: var(--shadow-neo-in);
-  overflow: hidden;
-}
-
-.score-bar-fill {
-  height: 100%;
-  border-radius: var(--radius-full);
-  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-soft));
-  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.score-bar-fill-warm {
-  background: linear-gradient(90deg, var(--color-warm), var(--color-warm-soft));
-}
-
-
-/* ============================================================
-   ANIMATIONS
-   ============================================================ */
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-30px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(30px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 10px var(--color-accent-glow); }
-  50% { box-shadow: 0 0 25px var(--color-accent-glow), 0 0 50px rgba(124, 91, 245, 0.1); }
-}
-
-@keyframes typing {
-  0%, 60%, 100% { opacity: 0.3; }
-  30% { opacity: 1; }
-}
-
-.animate-in {
-  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-fade {
-  animation: fadeIn 0.4s ease forwards;
-}
-
-.animate-slide-left {
-  animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-slide-right {
-  animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-pulse-glow {
-  animation: pulseGlow 2s infinite;
-}
-
-/* Stagger children */
-.stagger-children > * {
-  opacity: 0;
-  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.stagger-children > *:nth-child(1) { animation-delay: 0.05s; }
-.stagger-children > *:nth-child(2) { animation-delay: 0.1s; }
-.stagger-children > *:nth-child(3) { animation-delay: 0.15s; }
-.stagger-children > *:nth-child(4) { animation-delay: 0.2s; }
-.stagger-children > *:nth-child(5) { animation-delay: 0.25s; }
-.stagger-children > *:nth-child(6) { animation-delay: 0.3s; }
-
-
-/* ============================================================
-   TYPING INDICATOR
-   ============================================================ */
-
-.typing-dots {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-}
-.typing-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-accent-soft);
-  animation: typing 1.4s infinite;
-}
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-
-/* ============================================================
-   LAYOUT UTILITIES
-   ============================================================ */
-
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 1.5rem;
-}
-
-.page {
-  min-height: 100vh;
-  padding-top: 5rem;
-  padding-bottom: 3rem;
-}
-
-/* ============================================================
-   SCROLLBAR
-   ============================================================ */
-
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--color-bg-base);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--color-bg-raised);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+@media (max-width: 760px) {
+  .aisle {
+    grid-template-columns: 1fr;
+  }
+  .aisle-side {
+    padding: 0;
+  }
+  .aisle-rule {
+    height: 1px;
+    margin: 2rem 0;
+  }
 }

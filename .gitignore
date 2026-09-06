@@ -27,3 +27,6 @@ dist-ssr
 Thumbs.db
 .vscode/
 .idea/
+
+# Local SQLite database
+*.db

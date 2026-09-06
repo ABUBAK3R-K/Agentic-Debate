@@ -55,13 +55,11 @@ class Debate(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     topic = Column(Text, nullable=False)
-    category = Column(String(50), nullable=True)
     model_provider = Column(String(50), nullable=False)
     model_name = Column(String(100), nullable=False)
     temperature = Column(Float, nullable=False, default=0.8)
     top_p = Column(Float, nullable=False, default=1.0)
     max_tokens = Column(Integer, nullable=False, default=500)
-    round_count = Column(Integer, nullable=False, default=4)
     status = Column(
         String(20),
         nullable=False,
@@ -86,8 +84,12 @@ class DebateParticipant(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     debate_id = Column(UUID(as_uuid=True), ForeignKey("debates.id", ondelete="CASCADE"), nullable=False)
     friend_id = Column(UUID(as_uuid=True), ForeignKey("friends.id", ondelete="CASCADE"), nullable=False)
-    position = Column(String(20), nullable=True)  # FOR, AGAINST, NEUTRAL
-    participant_label = Column(String(20), nullable=True)  # Participant A, B, C
+    # Stable ordering: slot 0 speaks first and renders in the left column.
+    # Without it, participant order would rest on random UUIDs.
+    slot = Column(Integer, nullable=False, default=0)
+    position = Column(String(20), nullable=True)  # FOR / AGAINST
+    # Anonymized label shown to the judge; assigned in randomized order.
+    participant_label = Column(String(20), nullable=True)  # Participant A / B
 
     # Relationships
     debate = relationship("Debate", back_populates="participants")

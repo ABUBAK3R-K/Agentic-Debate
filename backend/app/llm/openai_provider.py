@@ -113,17 +113,9 @@ class OpenAIProvider(LLMProvider):
             resp.raise_for_status()
             raw = resp.json()["choices"][0]["message"]["content"]
 
-        # Parse & validate through Pydantic
-        try:
-            return response_model.model_validate_json(raw)
-        except Exception:
-            # Retry once: try to extract JSON from markdown fences
-            logger.warning("Structured output parse failed, attempting fallback")
-            cleaned = raw.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
-            return response_model.model_validate_json(cleaned)
-
+        # Strict validation. Recovery (retry → lenient parser → fail) is
+        # centralized in app.llm.structured so every caller escalates alike.
+        return response_model.model_validate_json(raw)
     async def generate_stream(
         self,
         system_prompt: str,
@@ -132,11 +124,13 @@ class OpenAIProvider(LLMProvider):
         temperature: float = 0.8,
         max_tokens: int = 500,
         top_p: float = 1.0,
+        json_output: bool = False,
     ) -> AsyncGenerator[str, None]:
         body = self._build_body(
             system_prompt, messages,
             temperature=temperature, max_tokens=max_tokens, top_p=top_p,
             stream=True,
+            **({"response_format": {"type": "json_object"}} if json_output else {}),
         )
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream(

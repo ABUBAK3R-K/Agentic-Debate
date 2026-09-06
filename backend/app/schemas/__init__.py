@@ -8,19 +8,17 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
-# Persona structured JSON — matches PRD Section 7
+# Persona structured JSON — the schema the compiler must produce
 # ---------------------------------------------------------------------------
 
 class ReasoningStyle(BaseModel):
     decision_making: str = ""
     risk_tolerance: str = ""
-    time_horizon: str = ""
     evidence_preference: str = ""
 
 
 class CommunicationStyle(BaseModel):
     tone: str = ""
-    verbosity: str = ""
     directness: str = ""
     humor: str = ""
 
@@ -28,11 +26,10 @@ class CommunicationStyle(BaseModel):
 class DebateStyle(BaseModel):
     aggressiveness: str = ""
     preferred_tactics: list[str] = Field(default_factory=list)
-    common_patterns: list[str] = Field(default_factory=list)
 
 
 class PersonaProfile(BaseModel):
-    """The structured persona JSON extracted by the Persona Compiler."""
+    """The structured persona JSON extracted by the persona compiler."""
     name: str
     core_traits: list[str] = Field(default_factory=list)
     values: list[str] = Field(default_factory=list)
@@ -52,11 +49,6 @@ class FriendCreate(BaseModel):
     raw_description: str = Field(..., min_length=10)
 
 
-class FriendUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    raw_description: Optional[str] = Field(None, min_length=10)
-
-
 class FriendResponse(BaseModel):
     id: UUID
     name: str
@@ -65,10 +57,6 @@ class FriendResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class FriendWithPersona(FriendResponse):
-    persona: Optional[PersonaProfile] = None
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +79,7 @@ class PersonaCompileResponse(BaseModel):
 
 
 class PersonaUpdateRequest(BaseModel):
-    """Allows the user to manually edit the generated persona."""
+    """The user's edits to a compiled persona, saved as a new version."""
     persona: PersonaProfile
 
 
@@ -100,13 +88,10 @@ class PersonaUpdateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 class DebateCreateRequest(BaseModel):
+    """Exactly two participants. Model settings come from the environment,
+    never from the client — see PRD "Critical model constraint"."""
     topic: str = Field(..., min_length=5)
-    category: Optional[str] = None
-    participant_ids: list[UUID] = Field(..., min_length=2, max_length=3)
-    round_count: int = Field(default=4, ge=2, le=6)
-    temperature: float = Field(default=0.8, ge=0.2, le=1.2)
-    max_tokens: int = Field(default=500, ge=100, le=2000)
-    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    participant_ids: list[UUID] = Field(..., min_length=2, max_length=2)
 
 
 class ParticipantResponse(BaseModel):
@@ -114,48 +99,34 @@ class ParticipantResponse(BaseModel):
     friend_id: UUID
     friend_name: str
     position: Optional[str] = None
-    participant_label: Optional[str] = None
-
-
-class DebateMessageResponse(BaseModel):
-    id: UUID
-    participant_id: UUID
-    participant_name: str
-    round_number: int
-    phase: str
-    content: str
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 class DebateResponse(BaseModel):
     id: UUID
     topic: str
-    category: Optional[str]
     status: str
-    round_count: int
     model_provider: str
     model_name: str
     temperature: float
+    top_p: float
+    max_tokens: int
     created_at: datetime
     completed_at: Optional[datetime]
+    participants: list[ParticipantResponse] = []
 
     model_config = {"from_attributes": True}
 
 
-class DebateDetailResponse(DebateResponse):
-    """Full debate with participants and messages."""
-    participants: list[ParticipantResponse] = []
-    messages: list[DebateMessageResponse] = []
-
-
 # ---------------------------------------------------------------------------
-# Agent structured output (PRD Section 16)
+# Agent structured output — what each debater returns per turn
 # ---------------------------------------------------------------------------
 
 class AgentStructuredOutput(BaseModel):
-    """Structured output expected from the LLM during each debate round."""
+    """Structured output expected from the LLM during each debate turn.
+
+    The frontend only ever renders `argument`; the rest is stored for later
+    evaluation work.
+    """
     argument: str
     key_claims: list[str] = Field(default_factory=list)
     opponent_claim_addressed: Optional[str] = None
@@ -163,36 +134,37 @@ class AgentStructuredOutput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# SSE event schemas
+# SSE event schema
 # ---------------------------------------------------------------------------
 
 class SSEDebateEvent(BaseModel):
-    """Schema for Server-Sent Events during live debate streaming."""
-    event_type: str  # phase_start, message, phase_end, debate_complete, error
+    """A single Server-Sent Event emitted while a debate runs."""
+    event_type: str  # phase_start, message, turn_failed, phase_end,
+                     # debate_complete, error
     phase: Optional[str] = None
     round_number: Optional[int] = None
+    participant_id: Optional[UUID] = None
     participant_name: Optional[str] = None
+    position: Optional[str] = None
     content: Optional[str] = None
     data: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
-# Judge evaluation schemas (PRD Sections 17-20)
+# Judge schemas
 # ---------------------------------------------------------------------------
 
 class ParticipantScore(BaseModel):
-    """Scores for a single participant from the judge."""
+    """The judge's scores for a single participant."""
     logic: int = Field(ge=0, le=10)
     evidence: int = Field(ge=0, le=10)
     rebuttal: int = Field(ge=0, le=10)
     persuasiveness: int = Field(ge=0, le=10)
-    persona_consistency: int = Field(ge=0, le=10)
-    originality: int = Field(ge=0, le=10)
     overall: float = Field(ge=0.0, le=10.0)
 
 
 class JudgeResult(BaseModel):
-    """Structured output from the judge LLM call."""
+    """Structured output from the judge LLM call, keyed by anonymized label."""
     winner: str
     scores: dict[str, ParticipantScore]
     winner_reason: str
@@ -200,24 +172,22 @@ class JudgeResult(BaseModel):
     weakest_argument: str
 
 
-class PersonaConsistencyScore(BaseModel):
-    """Per-participant persona consistency evaluation (separate from judge)."""
-    reasoning_consistency: int = Field(ge=0, le=10)
-    communication_consistency: int = Field(ge=0, le=10)
-    value_consistency: int = Field(ge=0, le=10)
-    behavior_consistency: int = Field(ge=0, le=10)
-    overall_score: float = Field(ge=0.0, le=10.0)
-    explanation: str = ""
+class ParticipantResult(BaseModel):
+    """One side of the verdict, mapped back to a real friend."""
+    participant_id: UUID
+    name: str
+    position: str
+    is_winner: bool
+    scores: ParticipantScore
 
 
-class EvaluationResponse(BaseModel):
-    """Full evaluation result returned by the API."""
+class DebateResultResponse(BaseModel):
+    """The verdict, as the frontend consumes it."""
     debate_id: UUID
+    topic: str
     status: str
     winner_name: Optional[str] = None
     winner_reason: Optional[str] = None
     strongest_argument: Optional[str] = None
     weakest_argument: Optional[str] = None
-    scores: Optional[dict[str, ParticipantScore]] = None
-    persona_consistency: Optional[dict[str, PersonaConsistencyScore]] = None
-
+    participants: list[ParticipantResult] = []

@@ -1,28 +1,22 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Layout } from './components/Layout';
-import { Landing } from './pages/Landing';
-import { Friends } from './pages/Friends';
-import { DebateSetup } from './pages/DebateSetup';
-import { LiveDebate } from './pages/LiveDebate';
-import { Results } from './pages/Results';
-import { History } from './pages/History';
-import './App.css';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
-function App() {
+import { LiveDebate } from './pages/LiveDebate';
+import { Setup } from './pages/Setup';
+import { Verdict } from './pages/Verdict';
+import './screens.css';
+
+/**
+ * Three screens: build the personas, watch the debate, read the verdict.
+ * Nothing from the v2 backlog is routed here — it does not exist yet.
+ */
+export default function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/friends" element={<Friends />} />
-          <Route path="/setup" element={<DebateSetup />} />
-          <Route path="/debate/:id" element={<LiveDebate />} />
-          <Route path="/debate/:id/results" element={<Results />} />
-          <Route path="/history" element={<History />} />
-        </Routes>
-      </Layout>
+      <Routes>
+        <Route path="/" element={<Setup />} />
+        <Route path="/debate/:id" element={<LiveDebate />} />
+        <Route path="/debate/:id/verdict" element={<Verdict />} />
+      </Routes>
     </BrowserRouter>
   );
 }
-
-export default App;

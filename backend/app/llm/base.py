@@ -50,6 +50,11 @@ class LLMProvider(ABC):
         temperature: float = 0.8,
         max_tokens: int = 500,
         top_p: float = 1.0,
+        json_output: bool = False,
     ) -> AsyncGenerator[str, None]:
-        """Yield text chunks for SSE streaming."""
+        """Yield raw text chunks as the model produces them.
+
+        With `json_output`, ask the provider for JSON so the caller can both
+        stream the text out and validate the structure at the end.
+        """
         ...

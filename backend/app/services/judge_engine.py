@@ -1,25 +1,24 @@
-"""JudgeEngine — independent AI judge and persona consistency evaluator.
+"""JudgeEngine — the independent judge.
 
-The judge is completely separate from the debating agents (PRD Section 17).
-Uses anonymized participant labels for bias mitigation (PRD Section 19).
-Persona consistency evaluation is logically separate from the judge (PRD Section 20).
+The judge is a separate LLM call. It never sees a friend's name: participants
+reach it only as "Participant A" and "Participant B", and which friend holds
+which label was randomized when the debate was created. The mapping back to
+real identities happens here, after the judge has answered.
 """
 
 import logging
-import random
-from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
     JUDGE_SYSTEM_PROMPT,
-    PERSONA_CONSISTENCY_SYSTEM,
     build_judge_user_prompt,
-    build_persona_consistency_prompt,
     format_anonymized_transcript,
 )
+from app.llm.structured import generate_structured_resilient
 from app.models import (
     Debate,
     DebateMessage,
@@ -28,222 +27,161 @@ from app.models import (
     Friend,
     Persona,
 )
-from app.schemas import JudgeResult, PersonaConsistencyScore
+from app.schemas import JudgeResult
 
 logger = logging.getLogger(__name__)
 
 
 class JudgeEngine:
-    """Runs the independent judge evaluation and persona consistency checks."""
+    """Scores a completed debate and stores the verdict."""
 
     def __init__(self, db: AsyncSession, llm: LLMProvider):
         self.db = db
         self.llm = llm
 
     async def evaluate_debate(self, debate: Debate) -> dict:
-        """Run the full evaluation pipeline:
-        1. Judge the debate (anonymized, randomized order)
-        2. Evaluate persona consistency per participant
-        3. Store the evaluation
-        4. Return the combined result
+        """Judge the debate, store the evaluation, and return the verdict."""
+        participants = await self._load_participants(debate.id)
+        transcript = await self._anonymized_transcript(debate.id, participants)
 
-        Returns a dict with winner info, scores, and persona consistency.
-        """
-        # Load participants
-        p_result = await self.db.execute(
-            select(DebateParticipant).where(DebateParticipant.debate_id == debate.id)
-        )
-        participants = list(p_result.scalars().all())
+        judge_result = await self._run_judge(debate, participants, transcript)
 
-        # Load friend names for each participant
-        participant_data = {}
-        for p in participants:
-            f_result = await self.db.execute(
-                select(Friend).where(Friend.id == p.friend_id)
+        # Map the judge's anonymized answer back onto real participants.
+        by_label = {p["label"]: p for p in participants.values()}
+        winner = by_label.get(judge_result.winner)
+        if winner is None:
+            raise ValueError(
+                f"Judge named an unknown participant: {judge_result.winner!r}"
             )
-            friend = f_result.scalar_one()
 
-            persona_result = await self.db.execute(
-                select(Persona)
-                .where(Persona.friend_id == p.friend_id)
-                .order_by(Persona.version.desc())
-                .limit(1)
-            )
-            persona = persona_result.scalar_one_or_none()
-            persona_json = persona.persona_json if persona else {}
-
-            participant_data[p.id] = {
-                "participant": p,
-                "friend": friend,
-                "persona_json": persona_json,
-                "label": p.participant_label,
-            }
-
-        # Load all messages
-        m_result = await self.db.execute(
-            select(DebateMessage)
-            .where(DebateMessage.debate_id == debate.id)
-            .order_by(DebateMessage.created_at)
-        )
-        all_messages = list(m_result.scalars().all())
-
-        # ------------------------------------------------------------------
-        # Step 1: Judge the debate
-        # ------------------------------------------------------------------
-        judge_result = await self._run_judge(
-            debate, participants, participant_data, all_messages
-        )
-
-        # ------------------------------------------------------------------
-        # Step 2: Persona consistency evaluation (separate from judge)
-        # ------------------------------------------------------------------
-        consistency_scores = await self._run_persona_consistency(
-            participants, participant_data, all_messages
-        )
-
-        # ------------------------------------------------------------------
-        # Step 3: Map anonymized winner back to real participant
-        # ------------------------------------------------------------------
-        winner_label = judge_result.winner
-        winner_participant_id = None
-        winner_name = None
-        for pid, data in participant_data.items():
-            if data["label"] == winner_label:
-                winner_participant_id = pid
-                winner_name = data["friend"].name
-                break
-
-        # Map anonymized score keys back to real names
-        named_scores = {}
+        scores_by_participant = {}
         for label, score in judge_result.scores.items():
-            for pid, data in participant_data.items():
-                if data["label"] == label:
-                    named_scores[data["friend"].name] = score
-                    break
-
-        # ------------------------------------------------------------------
-        # Step 4: Store evaluation
-        # ------------------------------------------------------------------
-        summary_parts = [
-            f"Winner: {winner_name or winner_label}",
-            f"Reason: {judge_result.winner_reason}",
-            f"Strongest argument: {judge_result.strongest_argument}",
-            f"Weakest argument: {judge_result.weakest_argument}",
-        ]
-
-        # Build scores JSON with both judge scores and persona consistency
-        scores_data = {
-            "judge": {name: score.model_dump() for name, score in named_scores.items()},
-            "persona_consistency": {
-                name: score.model_dump() for name, score in consistency_scores.items()
-            },
-        }
+            participant = by_label.get(label)
+            if participant is None:
+                logger.warning("Judge scored an unknown label %r; ignoring", label)
+                continue
+            scores_by_participant[str(participant["id"])] = score.model_dump()
 
         evaluation = Evaluation(
             debate_id=debate.id,
-            winner_participant_id=winner_participant_id,
-            scores_json=scores_data,
-            summary="\n".join(summary_parts),
+            winner_participant_id=winner["id"],
+            scores_json={
+                "scores": scores_by_participant,
+                "strongest_argument": judge_result.strongest_argument,
+                "weakest_argument": judge_result.weakest_argument,
+            },
+            summary=judge_result.winner_reason,
         )
         self.db.add(evaluation)
         await self.db.commit()
 
-        logger.info("Evaluation stored for debate %s. Winner: %s", debate.id, winner_name)
+        logger.info(
+            "Debate %s judged. Winner: %s (%s)",
+            debate.id, winner["name"], winner["label"],
+        )
 
         return {
-            "winner_name": winner_name,
+            "winner_name": winner["name"],
+            "winner_participant_id": str(winner["id"]),
             "winner_reason": judge_result.winner_reason,
             "strongest_argument": judge_result.strongest_argument,
             "weakest_argument": judge_result.weakest_argument,
-            "scores": {name: score.model_dump() for name, score in named_scores.items()},
-            "persona_consistency": {
-                name: score.model_dump() for name, score in consistency_scores.items()
-            },
+            "participants": [
+                {
+                    "participant_id": str(p["id"]),
+                    "name": p["name"],
+                    "position": p["position"],
+                    "is_winner": p["id"] == winner["id"],
+                    "scores": scores_by_participant.get(str(p["id"])),
+                }
+                for p in sorted(participants.values(), key=lambda p: p["slot"])
+            ],
         }
 
-    async def _run_judge(
-        self,
-        debate: Debate,
-        participants: list[DebateParticipant],
-        participant_data: dict,
-        all_messages: list[DebateMessage],
-    ) -> JudgeResult:
-        """Run the independent judge evaluation with bias mitigation."""
+    # ------------------------------------------------------------------ #
+    # Loading
+    # ------------------------------------------------------------------ #
 
-        # Randomize participant order for bias mitigation (PRD Section 19)
-        randomized = list(participants)
-        random.shuffle(randomized)
+    async def _load_participants(self, debate_id) -> dict:
+        """Participants keyed by id, with friend name and persona traits."""
+        result = await self.db.execute(
+            select(DebateParticipant, Friend)
+            .join(Friend, DebateParticipant.friend_id == Friend.id)
+            .where(DebateParticipant.debate_id == debate_id)
+            .order_by(DebateParticipant.slot)
+        )
 
-        # Build anonymized transcript
-        anon_messages = []
-        for msg in all_messages:
-            data = participant_data.get(msg.participant_id)
-            anon_messages.append({
-                "participant_label": data["label"] if data else "Unknown",
+        participants = {}
+        for participant, friend in result.all():
+            persona_result = await self.db.execute(
+                select(Persona)
+                .where(Persona.friend_id == participant.friend_id)
+                .order_by(Persona.version.desc())
+                .limit(1)
+            )
+            persona = persona_result.scalar_one_or_none()
+            traits = (persona.persona_json or {}).get("core_traits", []) if persona else []
+
+            participants[participant.id] = {
+                "id": participant.id,
+                "slot": participant.slot,
+                "name": friend.name,
+                "position": participant.position,
+                "label": participant.participant_label,
+                "traits": ", ".join(traits),
+            }
+        return participants
+
+    async def _anonymized_transcript(self, debate_id, participants: dict) -> str:
+        """The full transcript, with every name replaced by a label."""
+        result = await self.db.execute(
+            select(DebateMessage)
+            .where(DebateMessage.debate_id == debate_id)
+            .order_by(DebateMessage.created_at)
+        )
+        messages = list(result.scalars().all())
+
+        return format_anonymized_transcript([
+            {
+                "participant_label": participants[msg.participant_id]["label"],
                 "phase": msg.phase,
-                "content": msg.content,
-            })
-        transcript = format_anonymized_transcript(anon_messages)
+                "content": msg.content or "[no argument was produced for this turn]",
+            }
+            for msg in messages
+            if msg.participant_id in participants
+        ])
 
-        # Build participant info for judge (anonymized)
-        participants_info = []
-        for p in randomized:
-            data = participant_data[p.id]
-            persona = data["persona_json"]
-            traits = ", ".join(persona.get("core_traits", []))
-            participants_info.append({
-                "label": data["label"],
-                "persona_summary": traits or "No persona traits available",
-            })
+    # ------------------------------------------------------------------ #
+    # The judge call
+    # ------------------------------------------------------------------ #
 
-        user_prompt = build_judge_user_prompt(debate.topic, participants_info, transcript)
+    async def _run_judge(
+        self, debate: Debate, participants: dict, transcript: str
+    ) -> JudgeResult:
+        """Run the judge. Participants are described by traits only — no names.
 
-        logger.info("Running judge for debate %s", debate.id)
-        result: JudgeResult = await self.llm.generate_structured(
+        The judge is deliberately given traits rather than full personas: it is
+        scoring the arguments, not how well each side impersonated someone.
+        """
+        participants_info = [
+            {
+                "label": p["label"],
+                "persona_summary": p["traits"] or "No persona traits available",
+            }
+            for p in sorted(participants.values(), key=lambda p: p["label"])
+        ]
+
+        user_prompt = build_judge_user_prompt(
+            debate.topic, participants_info, transcript
+        )
+
+        logger.info("Judging debate %s", debate.id)
+        return await generate_structured_resilient(
+            self.llm,
             system_prompt=JUDGE_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
             response_model=JudgeResult,
-            temperature=0.3,  # Low temp for consistent evaluation
-            max_tokens=1500,
+            temperature=settings.JUDGE_TEMPERATURE,
+            max_tokens=settings.JUDGE_MAX_TOKENS,
+            context=f"judge for debate {debate.id}",
         )
-
-        return result
-
-    async def _run_persona_consistency(
-        self,
-        participants: list[DebateParticipant],
-        participant_data: dict,
-        all_messages: list[DebateMessage],
-    ) -> dict[str, PersonaConsistencyScore]:
-        """Evaluate persona consistency for each participant independently."""
-        consistency_scores = {}
-
-        for p in participants:
-            data = participant_data[p.id]
-            friend_name = data["friend"].name
-            persona_json = data["persona_json"]
-
-            # Collect this participant's messages
-            participant_messages = [
-                msg.content
-                for msg in all_messages
-                if msg.participant_id == p.id
-            ]
-
-            if not participant_messages:
-                continue
-
-            user_prompt = build_persona_consistency_prompt(persona_json, participant_messages)
-
-            logger.info("Evaluating persona consistency for %s in debate", friend_name)
-            score: PersonaConsistencyScore = await self.llm.generate_structured(
-                system_prompt=PERSONA_CONSISTENCY_SYSTEM,
-                messages=[{"role": "user", "content": user_prompt}],
-                response_model=PersonaConsistencyScore,
-                temperature=0.3,
-                max_tokens=500,
-            )
-
-            consistency_scores[friend_name] = score
-
-        return consistency_scores

@@ -1,61 +1,39 @@
-IMPORTANT DEVELOPMENT RULES
+# Instructions for Claude Code — PersonaArena restructure
 
-1. Build this project incrementally.
-2. Do NOT generate the entire application in one step.
-3. First create the architecture and project structure.
-4. Then implement backend foundation.
-5. Then database models and migrations.
-6. Then persona compiler.
-7. Then debate engine.
-8. Then judge engine.
-9. Then frontend.
-10. Then streaming.
-11. Then evaluation dashboard.
+You're picking up an existing project, not starting fresh. `PRD.md` and `design.md` in this repo (both just replaced) are now the source of truth — read both in full before touching any code.
 
-Before implementing each phase:
+## Context
 
-- inspect existing code
-- preserve working functionality
-- identify dependencies
-- explain what will be changed
-- implement
-- run tests
-- fix errors
-- verify the application
+v1 of this project was built from an earlier PRD that tried to cover the entire vision in one pass (full debate engine, judge, persona-consistency scoring, streaming, results dashboard, history, observability, prompt versioning, and a research/experiment mode, all at once). The result worked but felt generic — broad and shallow rather than a few things done with care. This restructure has two changes: a much smaller MVP scope, and an actual design system (`design.md`) where before there was none.
 
-Do not rewrite working files unnecessarily.
+## Step 1 — Audit before you touch anything
 
-Keep business logic separate from API routes.
+Inspect the current `backend/` and `frontend/` code and write a short audit (in your response, not a new file) covering:
 
-Keep LLM prompts in dedicated prompt modules.
+- What already matches the new `PRD.md` closely enough to keep (the debate state machine and persona schema were solid in v1 — they probably still are).
+- What's now out of scope per the new MVP list in `PRD.md` and should be removed or left disabled rather than finished.
+- What in the current frontend needs a full visual rebuild against `design.md` (this is probably most of it, since v1 had no design spec to follow).
 
-Never expose API keys to the frontend.
+Show this audit and wait for confirmation before making large changes. Small, obviously-safe fixes don't need to wait.
 
-Never hard-code provider-specific logic into the debate engine.
+## Step 2 — Build in this order, and stop expanding scope
 
-Use environment variables for model configuration.
+1. Confirm the backend debate engine + persona compiler match the trimmed schema in `PRD.md`. Fix drift, don't rewrite what already matches.
+2. Rebuild the frontend for exactly three screens: persona creation/review, live debate, verdict. Follow `design.md` precisely — the color-to-position binding, the two-family type system, the center-aisle layout, and the anti-patterns list are not optional.
+3. Wire SSE streaming end to end for the live debate screen.
+4. Only after those three screens genuinely match `design.md`, revisit anything from the "Later" list in `PRD.md` — and confirm first.
 
-Use typed Pydantic schemas for LLM structured output.
+Do not scaffold pages, routes, or disabled UI for anything in the "Later" list. If it's not in the MVP scope, it doesn't exist in this codebase yet.
 
-Use async APIs where appropriate.
+## Standing rules (carried over from before, still apply)
 
-Implement robust error handling.
+- Keep business logic out of route handlers; keep LLM prompts in one dedicated prompt module, never duplicated.
+- Every debate participant uses identical model/temperature/top_p/max_tokens, sourced from environment variables — never hardcoded.
+- Never expose API keys to the frontend.
+- Use typed Pydantic schemas for structured LLM output; if structured output fails, retry once, then fall back to a parser, then mark the turn failed — never silently continue with invalid data.
+- Use async APIs where it matters (the LLM calls and the SSE stream).
+- Run and fix tests after each step before moving to the next.
 
-Add logging around LLM calls.
+## Before you consider a screen done
 
-Use database migrations.
-
-Write unit tests for:
-
-- persona schema validation
-- persona compilation
-- prompt generation
-- debate state transitions
-- judge result validation
-
-Do not add unnecessary dependencies.
-
-Do not implement authentication, RAG, vector databases,
-voice, avatars, or fine-tuning in the MVP.
-
-The MVP must remain small and functional.
+Check it against the anti-patterns list in `design.md` explicitly — uniform card shadows, ALL-CAPS eyebrows, decorative gradients, trailing arrows on buttons, invented stats. If you're unsure whether something reads as generic, ask.

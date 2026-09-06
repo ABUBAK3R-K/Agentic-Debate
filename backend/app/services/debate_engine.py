@@ -1,11 +1,12 @@
-"""DebateEngine — deterministic state machine for multi-round debates.
+"""DebateEngine — the deterministic state machine that runs a debate.
 
-The backend controls all state transitions. LLMs only generate arguments.
-Agents CANNOT alter the state machine (PRD Section 12).
+The backend owns every state transition. The LLMs only produce content when
+asked; they never decide what happens next, who speaks, or which side they
+are on.
 """
 
-import json
 import logging
+import random
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 from uuid import UUID
@@ -16,18 +17,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
     build_debate_system_prompt,
-    build_opening_prompt,
-    build_rebuttal_prompt,
-    build_counter_prompt,
-    build_closing_prompt,
+    build_turn_prompt,
     format_transcript,
 )
-from app.models import Debate, DebateParticipant, DebateMessage, Friend, Persona
+from app.llm.structured import (
+    JsonStringFieldExtractor,
+    StructuredOutputError,
+    generate_structured_resilient,
+    lenient_parse,
+)
+from app.models import Debate, DebateMessage, DebateParticipant, Friend, Persona
 from app.schemas import AgentStructuredOutput, SSEDebateEvent
 
 logger = logging.getLogger(__name__)
 
-# Valid state transitions
+# The only legal path through a debate.
 VALID_TRANSITIONS = {
     "CREATED": "POSITIONING",
     "POSITIONING": "OPENING",
@@ -38,16 +42,20 @@ VALID_TRANSITIONS = {
     "JUDGING": "COMPLETED",
 }
 
-# Map phases to round numbers (for a standard 4-round debate)
-PHASE_ORDER = ["POSITIONING", "OPENING", "REBUTTAL", "COUNTER", "CLOSING"]
+# The four speaking rounds, in order, with their round numbers.
+DEBATE_ROUNDS = [
+    ("OPENING", 1),
+    ("REBUTTAL", 2),
+    ("COUNTER", 3),
+    ("CLOSING", 4),
+]
 
-# Positions
-POSITIONS_2P = ["FOR", "AGAINST"]
-POSITIONS_3P = ["FOR", "AGAINST", "NEUTRAL"]
+POSITIONS = ["FOR", "AGAINST"]
+PARTICIPANT_LABELS = ["Participant A", "Participant B"]
 
 
 class DebateEngine:
-    """Orchestrates the full debate lifecycle."""
+    """Orchestrates one debate from creation through to a stored verdict."""
 
     def __init__(self, db: AsyncSession, llm: LLMProvider):
         self.db = db
@@ -58,9 +66,9 @@ class DebateEngine:
     # ------------------------------------------------------------------ #
 
     async def _transition(self, debate: Debate, target_status: str) -> None:
-        """Advance the debate to the next state, or fail."""
+        """Advance the debate one step, or refuse."""
         expected = VALID_TRANSITIONS.get(debate.status)
-        if expected != target_status and target_status != "FAILED":
+        if expected != target_status:
             raise ValueError(
                 f"Invalid transition: {debate.status} → {target_status}. "
                 f"Expected → {expected}"
@@ -69,80 +77,91 @@ class DebateEngine:
         if target_status == "COMPLETED":
             debate.completed_at = datetime.now(timezone.utc)
         await self.db.commit()
-        logger.info("Debate %s transitioned to %s", debate.id, target_status)
+        logger.info("Debate %s → %s", debate.id, target_status)
 
     # ------------------------------------------------------------------ #
-    # Create debate
+    # Creation
     # ------------------------------------------------------------------ #
 
     async def create_debate(
         self,
+        *,
         topic: str,
-        category: str | None,
         participant_friend_ids: list[UUID],
-        round_count: int,
-        temperature: float,
-        max_tokens: int,
-        top_p: float,
         model_provider: str,
         model_name: str,
+        temperature: float,
+        top_p: float,
+        max_tokens: int,
     ) -> Debate:
-        """Create a new debate record with participants."""
+        """Create a debate and its two participants.
+
+        Anonymized judge labels are assigned here, in randomized order, so the
+        judge's "Participant A" is as likely to be the second friend as the
+        first. This is the debate's only source of judge-facing ordering.
+        """
+        if len(participant_friend_ids) != 2:
+            raise ValueError("A debate needs exactly two participants")
+
         debate = Debate(
             topic=topic,
-            category=category,
             model_provider=model_provider,
             model_name=model_name,
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
-            round_count=round_count,
             status="CREATED",
         )
         self.db.add(debate)
-        await self.db.flush()  # Get the debate ID
+        await self.db.flush()
 
-        # Create participants
-        labels = [chr(65 + i) for i in range(len(participant_friend_ids))]  # A, B, C
-        for i, friend_id in enumerate(participant_friend_ids):
-            participant = DebateParticipant(
+        labels = list(PARTICIPANT_LABELS)
+        random.shuffle(labels)
+        for slot, (friend_id, label) in enumerate(zip(participant_friend_ids, labels)):
+            self.db.add(DebateParticipant(
                 debate_id=debate.id,
                 friend_id=friend_id,
-                participant_label=f"Participant {labels[i]}",
-            )
-            self.db.add(participant)
+                slot=slot,
+                participant_label=label,
+            ))
 
         await self.db.commit()
         await self.db.refresh(debate)
-        logger.info("Debate %s created with %d participants", debate.id, len(participant_friend_ids))
+        logger.info("Debate %s created", debate.id)
         return debate
 
     # ------------------------------------------------------------------ #
-    # Position assignment
+    # Participants
     # ------------------------------------------------------------------ #
 
+    async def _get_participants(self, debate_id: UUID) -> list[DebateParticipant]:
+        """Participants in slot order — the speaking and column order."""
+        result = await self.db.execute(
+            select(DebateParticipant)
+            .where(DebateParticipant.debate_id == debate_id)
+            .order_by(DebateParticipant.slot)
+        )
+        return list(result.scalars().all())
+
     async def assign_positions(self, debate: Debate) -> None:
-        """Assign FOR/AGAINST/NEUTRAL positions to participants."""
+        """Assign FOR / AGAINST. The backend decides, never the agents —
+        left to themselves, both agents pick whichever side reads as safer."""
         await self._transition(debate, "POSITIONING")
 
-        result = await self.db.execute(
-            select(DebateParticipant).where(DebateParticipant.debate_id == debate.id)
-        )
-        participants = list(result.scalars().all())
+        participants = await self._get_participants(debate.id)
+        if len(participants) != 2:
+            raise ValueError(
+                f"Debate {debate.id} has {len(participants)} participants, expected 2"
+            )
 
-        positions = POSITIONS_2P if len(participants) == 2 else POSITIONS_3P
-        for i, participant in enumerate(participants):
-            participant.position = positions[i]
+        for participant, position in zip(participants, POSITIONS):
+            participant.position = position
 
         await self.db.commit()
         logger.info("Positions assigned for debate %s", debate.id)
 
-    # ------------------------------------------------------------------ #
-    # Helpers
-    # ------------------------------------------------------------------ #
-
-    async def _load_participant_data(self, participant: DebateParticipant) -> dict:
-        """Load the friend name and latest persona for a participant."""
+    async def _load_participant_context(self, participant: DebateParticipant) -> dict:
+        """Load the friend and their latest persona, compiled into a prompt."""
         friend_result = await self.db.execute(
             select(Friend).where(Friend.id == participant.friend_id)
         )
@@ -163,273 +182,218 @@ class DebateEngine:
             "system_prompt": build_debate_system_prompt(persona_json),
         }
 
-    async def _get_transcript_so_far(self, debate_id: UUID) -> list[dict]:
-        """Fetch all messages for a debate, formatted for context injection."""
+    # ------------------------------------------------------------------ #
+    # Transcript
+    # ------------------------------------------------------------------ #
+
+    async def _transcript_so_far(self, debate_id: UUID) -> str:
+        """The debate so far, formatted for injection into a turn prompt."""
         result = await self.db.execute(
-            select(DebateMessage)
+            select(DebateMessage, Friend)
+            .join(
+                DebateParticipant,
+                DebateMessage.participant_id == DebateParticipant.id,
+            )
+            .join(Friend, DebateParticipant.friend_id == Friend.id)
             .where(DebateMessage.debate_id == debate_id)
             .order_by(DebateMessage.created_at)
         )
-        messages = result.scalars().all()
-
-        transcript = []
-        for msg in messages:
-            # Look up participant's friend name
-            p_result = await self.db.execute(
-                select(DebateParticipant).where(DebateParticipant.id == msg.participant_id)
-            )
-            participant = p_result.scalar_one()
-            f_result = await self.db.execute(
-                select(Friend).where(Friend.id == participant.friend_id)
-            )
-            friend = f_result.scalar_one()
-
-            transcript.append({
+        return format_transcript([
+            {
                 "participant_name": friend.name,
-                "phase": msg.phase,
-                "content": msg.content,
-            })
-        return transcript
+                "phase": message.phase,
+                "content": message.content,
+            }
+            for message, friend in result.all()
+        ])
 
-    async def _generate_and_store(
+    # ------------------------------------------------------------------ #
+    # One turn
+    # ------------------------------------------------------------------ #
+
+    async def _run_turn(
         self,
         debate: Debate,
         participant: DebateParticipant,
-        participant_data: dict,
-        user_prompt: str,
+        context: dict,
         phase: str,
         round_number: int,
-    ) -> DebateMessage:
-        """Call the LLM for a participant and store the result."""
-        try:
-            structured: AgentStructuredOutput = await self.llm.generate_structured(
-                system_prompt=participant_data["system_prompt"],
-                messages=[{"role": "user", "content": user_prompt}],
-                response_model=AgentStructuredOutput,
-                temperature=debate.temperature,
-                max_tokens=debate.max_tokens,
-                top_p=debate.top_p,
-            )
-            content = structured.argument
-            structured_json = structured.model_dump()
-        except Exception as e:
-            logger.warning("Structured output failed for %s, falling back to text: %s", participant.id, e)
-            # Fallback: plain text generation
-            content = await self.llm.generate_text(
-                system_prompt=participant_data["system_prompt"],
-                messages=[{"role": "user", "content": user_prompt}],
-                temperature=debate.temperature,
-                max_tokens=debate.max_tokens,
-                top_p=debate.top_p,
-            )
-            structured_json = {"argument": content, "key_claims": [], "confidence": 0.5}
+        transcript: str,
+    ) -> AsyncGenerator[SSEDebateEvent, None]:
+        """Generate one participant's turn, streaming it as it is written.
 
-        message = DebateMessage(
+        Every participant is called with the debate's identical model settings.
+        The only things that differ are the persona system prompt, the assigned
+        position, and the transcript.
+
+        A turn emits `turn_start`, then `token` events as text arrives, then
+        exactly one of `message` (the authoritative final text) or
+        `turn_failed`. Tokens are a live preview; `message` is the truth, so a
+        turn that has to be regenerated simply replaces what was previewed.
+        """
+        user_prompt = build_turn_prompt(
+            phase, debate.topic, participant.position, transcript
+        )
+        messages = [{"role": "user", "content": user_prompt}]
+        turn_context = f"{phase} turn for participant {participant.id}"
+
+        def event(event_type: str, **fields) -> SSEDebateEvent:
+            return SSEDebateEvent(
+                event_type=event_type,
+                phase=phase,
+                round_number=round_number,
+                participant_id=participant.id,
+                participant_name=context["friend"].name,
+                position=participant.position,
+                **fields,
+            )
+
+        yield event("turn_start")
+
+        output: AgentStructuredOutput | None = None
+        extractor = JsonStringFieldExtractor("argument")
+
+        try:
+            async for chunk in self.llm.generate_stream(
+                system_prompt=context["system_prompt"],
+                messages=messages,
+                temperature=debate.temperature,
+                max_tokens=debate.max_tokens,
+                top_p=debate.top_p,
+                json_output=True,
+            ):
+                delta = extractor.feed(chunk)
+                if delta:
+                    yield event("token", content=delta)
+
+            output = lenient_parse(extractor.raw, AgentStructuredOutput)
+        except Exception as exc:
+            # The stream is a nicety; correctness comes from the recovery
+            # chain, so fall back to it rather than losing the turn.
+            logger.warning("Streaming failed for %s: %s", turn_context, exc)
+
+        if output is None:
+            try:
+                output = await generate_structured_resilient(
+                    self.llm,
+                    system_prompt=context["system_prompt"],
+                    messages=messages,
+                    response_model=AgentStructuredOutput,
+                    temperature=debate.temperature,
+                    max_tokens=debate.max_tokens,
+                    top_p=debate.top_p,
+                    context=turn_context,
+                )
+            except StructuredOutputError as exc:
+                # Record the turn as failed rather than storing invented
+                # content. The debate continues; the gap is visible.
+                logger.error(
+                    "Turn failed: debate=%s participant=%s phase=%s: %s",
+                    debate.id, participant.id, phase, exc,
+                )
+                self.db.add(DebateMessage(
+                    debate_id=debate.id,
+                    participant_id=participant.id,
+                    round_number=round_number,
+                    phase=phase,
+                    content="",
+                    structured_output={"failed": True, "error": str(exc)},
+                ))
+                await self.db.commit()
+                yield event(
+                    "turn_failed",
+                    content="This turn could not be generated.",
+                )
+                return
+
+        self.db.add(DebateMessage(
             debate_id=debate.id,
             participant_id=participant.id,
             round_number=round_number,
             phase=phase,
-            content=content,
-            structured_output=structured_json,
-        )
-        self.db.add(message)
+            content=output.argument,
+            structured_output=output.model_dump(),
+        ))
         await self.db.commit()
-        await self.db.refresh(message)
-        return message
+
+        yield event("message", content=output.argument)
 
     # ------------------------------------------------------------------ #
-    # Round generators
-    # ------------------------------------------------------------------ #
-
-    async def run_opening(self, debate: Debate) -> AsyncGenerator[SSEDebateEvent, None]:
-        """Run the opening round for all participants."""
-        await self._transition(debate, "OPENING")
-
-        result = await self.db.execute(
-            select(DebateParticipant).where(DebateParticipant.debate_id == debate.id)
-        )
-        participants = list(result.scalars().all())
-
-        yield SSEDebateEvent(event_type="phase_start", phase="OPENING", round_number=1)
-
-        for participant in participants:
-            data = await self._load_participant_data(participant)
-            user_prompt = build_opening_prompt(debate.topic, participant.position)
-
-            message = await self._generate_and_store(
-                debate, participant, data, user_prompt, "OPENING", 1
-            )
-
-            yield SSEDebateEvent(
-                event_type="message",
-                phase="OPENING",
-                round_number=1,
-                participant_name=data["friend"].name,
-                content=message.content,
-            )
-
-        yield SSEDebateEvent(event_type="phase_end", phase="OPENING", round_number=1)
-
-    async def run_rebuttal(self, debate: Debate) -> AsyncGenerator[SSEDebateEvent, None]:
-        """Run the rebuttal round."""
-        await self._transition(debate, "REBUTTAL")
-
-        result = await self.db.execute(
-            select(DebateParticipant).where(DebateParticipant.debate_id == debate.id)
-        )
-        participants = list(result.scalars().all())
-        transcript_data = await self._get_transcript_so_far(debate.id)
-        transcript_text = format_transcript(transcript_data)
-
-        yield SSEDebateEvent(event_type="phase_start", phase="REBUTTAL", round_number=2)
-
-        for participant in participants:
-            data = await self._load_participant_data(participant)
-            user_prompt = build_rebuttal_prompt(debate.topic, participant.position, transcript_text)
-
-            message = await self._generate_and_store(
-                debate, participant, data, user_prompt, "REBUTTAL", 2
-            )
-
-            yield SSEDebateEvent(
-                event_type="message",
-                phase="REBUTTAL",
-                round_number=2,
-                participant_name=data["friend"].name,
-                content=message.content,
-            )
-
-        yield SSEDebateEvent(event_type="phase_end", phase="REBUTTAL", round_number=2)
-
-    async def run_counter(self, debate: Debate) -> AsyncGenerator[SSEDebateEvent, None]:
-        """Run the counter-argument round."""
-        await self._transition(debate, "COUNTER")
-
-        result = await self.db.execute(
-            select(DebateParticipant).where(DebateParticipant.debate_id == debate.id)
-        )
-        participants = list(result.scalars().all())
-        transcript_data = await self._get_transcript_so_far(debate.id)
-        transcript_text = format_transcript(transcript_data)
-
-        yield SSEDebateEvent(event_type="phase_start", phase="COUNTER", round_number=3)
-
-        for participant in participants:
-            data = await self._load_participant_data(participant)
-            user_prompt = build_counter_prompt(debate.topic, participant.position, transcript_text)
-
-            message = await self._generate_and_store(
-                debate, participant, data, user_prompt, "COUNTER", 3
-            )
-
-            yield SSEDebateEvent(
-                event_type="message",
-                phase="COUNTER",
-                round_number=3,
-                participant_name=data["friend"].name,
-                content=message.content,
-            )
-
-        yield SSEDebateEvent(event_type="phase_end", phase="COUNTER", round_number=3)
-
-    async def run_closing(self, debate: Debate) -> AsyncGenerator[SSEDebateEvent, None]:
-        """Run the closing round."""
-        await self._transition(debate, "CLOSING")
-
-        result = await self.db.execute(
-            select(DebateParticipant).where(DebateParticipant.debate_id == debate.id)
-        )
-        participants = list(result.scalars().all())
-        transcript_data = await self._get_transcript_so_far(debate.id)
-        transcript_text = format_transcript(transcript_data)
-
-        yield SSEDebateEvent(event_type="phase_start", phase="CLOSING", round_number=4)
-
-        for participant in participants:
-            data = await self._load_participant_data(participant)
-            user_prompt = build_closing_prompt(debate.topic, participant.position, transcript_text)
-
-            message = await self._generate_and_store(
-                debate, participant, data, user_prompt, "CLOSING", 4
-            )
-
-            yield SSEDebateEvent(
-                event_type="message",
-                phase="CLOSING",
-                round_number=4,
-                participant_name=data["friend"].name,
-                content=message.content,
-            )
-
-        yield SSEDebateEvent(event_type="phase_end", phase="CLOSING", round_number=4)
-
-    # ------------------------------------------------------------------ #
-    # Full debate orchestration
+    # Full debate
     # ------------------------------------------------------------------ #
 
     async def run_debate(self, debate: Debate) -> AsyncGenerator[SSEDebateEvent, None]:
-        """Run the entire debate through all phases, yielding SSE events.
+        """Run the debate end to end, yielding an event per state change.
 
-        This is the main entry point called by the API stream endpoint.
+        This is the generator behind the SSE stream.
         """
         try:
-            # Phase 1: Position assignment
             await self.assign_positions(debate)
+            participants = await self._get_participants(debate.id)
+            contexts = {
+                p.id: await self._load_participant_context(p) for p in participants
+            }
+
             yield SSEDebateEvent(
                 event_type="phase_start",
                 phase="POSITIONING",
-                data={"message": "Positions assigned"},
+                data={
+                    "topic": debate.topic,
+                    "participants": [
+                        {
+                            "participant_id": str(p.id),
+                            "name": contexts[p.id]["friend"].name,
+                            "position": p.position,
+                        }
+                        for p in participants
+                    ],
+                },
             )
 
-            # Phase 2: Opening statements
-            async for event in self.run_opening(debate):
-                yield event
+            for phase, round_number in DEBATE_ROUNDS:
+                await self._transition(debate, phase)
+                yield SSEDebateEvent(
+                    event_type="phase_start",
+                    phase=phase,
+                    round_number=round_number,
+                )
 
-            # Phase 3: Rebuttal
-            async for event in self.run_rebuttal(debate):
-                yield event
+                # Each turn sees everything said before it, so turns within a
+                # round run in sequence rather than concurrently.
+                for participant in participants:
+                    transcript = await self._transcript_so_far(debate.id)
+                    async for turn_event in self._run_turn(
+                        debate,
+                        participant,
+                        contexts[participant.id],
+                        phase,
+                        round_number,
+                        transcript,
+                    ):
+                        yield turn_event
 
-            # Phase 4: Counter-arguments
-            async for event in self.run_counter(debate):
-                yield event
+                yield SSEDebateEvent(
+                    event_type="phase_end",
+                    phase=phase,
+                    round_number=round_number,
+                )
 
-            # Phase 5: Closing statements
-            async for event in self.run_closing(debate):
-                yield event
-
-            # Phase 6: Judging — run independent judge + persona consistency
             await self._transition(debate, "JUDGING")
-            yield SSEDebateEvent(
-                event_type="phase_start",
-                phase="JUDGING",
-                data={"message": "Debate rounds complete. Running judge evaluation..."},
-            )
+            yield SSEDebateEvent(event_type="phase_start", phase="JUDGING")
 
             from app.services.judge_engine import JudgeEngine
-            judge = JudgeEngine(self.db, self.llm)
-            evaluation_result = await judge.evaluate_debate(debate)
 
-            yield SSEDebateEvent(
-                event_type="message",
-                phase="JUDGING",
-                content=f"Winner: {evaluation_result.get('winner_name', 'Unknown')}",
-                data=evaluation_result,
-            )
+            verdict = await JudgeEngine(self.db, self.llm).evaluate_debate(debate)
 
-            # Phase 7: Completed
             await self._transition(debate, "COMPLETED")
             yield SSEDebateEvent(
                 event_type="debate_complete",
                 phase="COMPLETED",
-                data=evaluation_result,
+                data=verdict,
             )
 
-        except Exception as e:
-            logger.error("Debate %s failed: %s", debate.id, e, exc_info=True)
+        except Exception as exc:
+            logger.error("Debate %s failed: %s", debate.id, exc, exc_info=True)
             debate.status = "FAILED"
             await self.db.commit()
-            yield SSEDebateEvent(
-                event_type="error",
-                content=f"Debate failed: {str(e)}",
-            )
-
+            yield SSEDebateEvent(event_type="error", content=str(exc))

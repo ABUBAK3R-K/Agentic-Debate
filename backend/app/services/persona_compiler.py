@@ -1,18 +1,21 @@
-"""Persona Compiler service.
+"""Persona compiler.
 
-Converts raw natural-language friend descriptions into structured
-PersonaProfile JSON using the LLM, then stores the result.
+Turns a raw, user-written description into a structured, validated persona.
+The raw text is never handed to a debate agent as its system prompt — it is
+always compiled first.
 """
 
 import logging
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.llm.base import LLMProvider
 from app.llm.prompts import PERSONA_COMPILER_SYSTEM, persona_compiler_user_prompt
-from app.models import Friend, Persona
+from app.llm.structured import generate_structured_resilient
+from app.models import Persona
 from app.schemas import PersonaProfile
+from app.services import friend_service
 
 logger = logging.getLogger(__name__)
 
@@ -22,51 +25,32 @@ async def compile_persona(
     db: AsyncSession,
     llm: LLMProvider,
 ) -> Persona:
-    """Run the persona compiler pipeline for a given friend.
+    """Compile a friend's description into a stored persona version.
 
-    1. Load the friend's raw description.
-    2. Call the LLM with the compiler prompt.
-    3. Validate the output via Pydantic.
-    4. Persist a new Persona row (incrementing version).
-    5. Return the Persona ORM object.
+    raw description → LLM → Pydantic validation → stored persona
     """
-    # 1. Load friend
-    result = await db.execute(select(Friend).where(Friend.id == friend_id))
-    friend = result.scalar_one_or_none()
+    friend = await friend_service.get_friend(friend_id, db)
     if friend is None:
         raise ValueError(f"Friend {friend_id} not found")
 
-    # 2-3. Generate structured persona via LLM
-    user_msg = persona_compiler_user_prompt(friend.name, friend.raw_description)
-
-    logger.info("Compiling persona for friend=%s (%s)", friend.id, friend.name)
-    persona_profile: PersonaProfile = await llm.generate_structured(
+    logger.info("Compiling persona for %s (%s)", friend.id, friend.name)
+    profile: PersonaProfile = await generate_structured_resilient(
+        llm,
         system_prompt=PERSONA_COMPILER_SYSTEM,
-        messages=[{"role": "user", "content": user_msg}],
+        messages=[{
+            "role": "user",
+            "content": persona_compiler_user_prompt(
+                friend.name, friend.raw_description
+            ),
+        }],
         response_model=PersonaProfile,
-        temperature=0.4,  # Lower temp for extraction accuracy
-        max_tokens=1000,
+        temperature=settings.COMPILER_TEMPERATURE,
+        max_tokens=settings.COMPILER_MAX_TOKENS,
+        context=f"persona compilation for friend {friend.id}",
     )
 
-    # 4. Determine next version
-    latest = await db.execute(
-        select(Persona)
-        .where(Persona.friend_id == friend_id)
-        .order_by(Persona.version.desc())
-        .limit(1)
+    persona = await friend_service.save_persona_edit(
+        friend_id, profile.model_dump(), db
     )
-    latest_persona = latest.scalar_one_or_none()
-    next_version = (latest_persona.version + 1) if latest_persona else 1
-
-    # 5. Persist
-    persona = Persona(
-        friend_id=friend_id,
-        persona_json=persona_profile.model_dump(),
-        version=next_version,
-    )
-    db.add(persona)
-    await db.commit()
-    await db.refresh(persona)
-
-    logger.info("Persona v%d saved for friend=%s", next_version, friend.id)
+    logger.info("Persona v%d saved for %s", persona.version, friend.id)
     return persona
