@@ -156,7 +156,7 @@ divider), visible keyboard focus on every interactive element, respect
 ```bash
 # Backend (from backend/) — deps live in backend/.venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe -m pytest             # 80 tests, no network, no DB
+.venv/Scripts/python.exe -m pytest             # 115 tests, no network, no DB
 .venv/Scripts/python.exe init_db.py            # create tables
 .venv/Scripts/python.exe -m uvicorn app.main:app --reload
 
