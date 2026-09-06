@@ -18,6 +18,7 @@ from typing import Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from app.llm.base import LLMProvider
+from app.llm.errors import LLMTransportError, redact
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,13 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 class StructuredOutputError(Exception):
-    """Raised when a model cannot be coaxed into valid structured output."""
+    """Raised when a model cannot be coaxed into valid structured output.
+
+    Its message is redacted, because it is shown to the user.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(redact(message))
 
 
 def _extract_json_object(text: str) -> str | None:
@@ -115,10 +122,17 @@ async def generate_structured_resilient(
                 max_tokens=max_tokens,
                 top_p=top_p,
             )
+        except LLMTransportError as exc:
+            # The provider never answered — a rate limit or an outage, already
+            # retried with backoff inside the transport layer. Escalating to a
+            # text call would just spend another request against the same
+            # limit, so stop here.
+            logger.error("Provider unreachable for %s: %s", context, exc)
+            raise StructuredOutputError(exc.user_message) from exc
         except Exception as exc:
             logger.warning(
                 "Structured output attempt %d/2 failed for %s: %s",
-                attempt, context, exc,
+                attempt, context, redact(str(exc)),
             )
 
     logger.info("Falling back to text generation + lenient parse for %s", context)

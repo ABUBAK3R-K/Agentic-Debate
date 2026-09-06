@@ -37,9 +37,10 @@ class TestGeminiEndpoint:
             "http://127.0.0.1:8999/models/gemini-2.0-flash:streamGenerateContent"
         )
 
-    def test_the_key_travels_in_the_url_not_the_response(self, monkeypatch):
+    def test_the_key_stays_out_of_the_url(self, monkeypatch):
+        """It used to ride in ?key=, which leaked it through error messages."""
         monkeypatch.setattr(settings, "LLM_API_KEY", "secret-key")
-        assert "key=secret-key" in GeminiProvider()._url()
+        assert "secret-key" not in GeminiProvider()._url()
 
 
 class TestJsonMode:

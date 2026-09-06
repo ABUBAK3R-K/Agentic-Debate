@@ -92,8 +92,11 @@ export function Setup() {
   return (
     <main className="page">
       <header className="masthead">
-        <h1 className="masthead-title">PersonaArena</h1>
-        <p className="masthead-tagline">Same model. Different minds.</p>
+        {/* The name lives in the site header now, so this is the hero line. */}
+        <h1 className="masthead-title">Same model. Different minds.</h1>
+        <p className="masthead-tagline">
+          Describe two friends, then watch one model argue as both of them.
+        </p>
       </header>
 
       <SimulationNotice>

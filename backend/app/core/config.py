@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     COMPILER_TEMPERATURE: float = 0.4
     COMPILER_MAX_TOKENS: int = 1000
 
+    # Provider pacing. A debate is nine requests back to back, which walks
+    # straight into a free tier's per-minute limit unless it is paced.
+    # Free Gemini/OpenAI tiers usually want 4-6s; a paid key can use 0.
+    LLM_MIN_REQUEST_INTERVAL: float = 4.0
+    LLM_MAX_RETRIES: int = 4
+    LLM_BACKOFF_BASE: float = 2.0
+    LLM_MAX_BACKOFF: float = 60.0
+
     # CORS — comma-separated list of allowed frontend origins.
     CORS_ORIGINS: str = "http://localhost:5173"
 

@@ -52,7 +52,7 @@ backend/app/
 backend/tests/ pytest suite; fakes.py holds the scripted FakeLLM.
 frontend/src/
   pages/       Setup, LiveDebate, Verdict. Exactly three.
-  components/  Aisle, PersonaSheet, SimulationNotice.
+  components/  SiteHeader, Aisle, PersonaSheet, SimulationNotice.
   services/    Axios API client.
   hooks/       useDebateStream — the SSE reducer.
   index.css    Design tokens and primitives.
@@ -82,7 +82,21 @@ gets validated structured output.
   top_p, max_tokens come from environment variables, are stored on the debate
   record, and are never hardcoded in the debate engine. The only difference
   between two agents is persona + assigned position + conversation context.
-- **Never expose API keys to the frontend.** All LLM calls are server-side.
+- **Never expose API keys to the frontend — or to a log.** All LLM calls are
+  server-side, and credentials travel in headers, never in a URL. A key in a
+  query string ends up in every provider error message, and those messages
+  reach both the logs and the browser. Every user-facing error string passes
+  through `app.llm.errors.redact` first.
+- **Pace the provider.** One debate is nine requests back to back, which walks
+  straight into a free tier's per-minute limit. `app/llm/transport.py` holds a
+  process-wide minimum interval between requests plus retry-with-backoff that
+  honours the provider's own `Retry-After` / `retryDelay`. Tune with
+  `LLM_MIN_REQUEST_INTERVAL`.
+- **Transport failures are not output failures.** A 429 or a 5xx means "ask
+  again later" and must not be escalated through the structured-output chain —
+  that just spends more requests against the limit that already refused. A
+  turn that fails this way stops the debate rather than leaving every
+  remaining round empty.
 - **Structured output discipline.** Ask for typed Pydantic output. On failure:
   retry once → fall back to a lenient parser → mark the turn failed. Never
   silently continue with invalid data.

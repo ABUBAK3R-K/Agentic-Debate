@@ -20,6 +20,7 @@ from app.llm.prompts import (
     build_turn_prompt,
     format_transcript,
 )
+from app.llm.errors import LLMTransportError, redact
 from app.llm.structured import (
     JsonStringFieldExtractor,
     StructuredOutputError,
@@ -60,6 +61,10 @@ class DebateEngine:
     def __init__(self, db: AsyncSession, llm: LLMProvider):
         self.db = db
         self.llm = llm
+        # Set when the provider refuses on quota. Every later turn would fail
+        # the same way, so the debate stops rather than filling the remaining
+        # rounds with empty ones.
+        self.blocked_reason: str | None = None
 
     # ------------------------------------------------------------------ #
     # State machine
@@ -270,7 +275,11 @@ class DebateEngine:
         except Exception as exc:
             # The stream is a nicety; correctness comes from the recovery
             # chain, so fall back to it rather than losing the turn.
-            logger.warning("Streaming failed for %s: %s", turn_context, exc)
+            # A rate limit here is not fatal: the recovery chain below retries
+            # with backoff. Only a turn that fails outright blocks the debate.
+            logger.warning(
+                "Streaming failed for %s: %s", turn_context, redact(str(exc))
+            )
 
         if output is None:
             try:
@@ -286,7 +295,9 @@ class DebateEngine:
                 )
             except StructuredOutputError as exc:
                 # Record the turn as failed rather than storing invented
-                # content. The debate continues; the gap is visible.
+                # content. A one-off bad answer leaves a visible gap and the
+                # debate carries on; a provider that will not answer at all
+                # stops it (see run_debate).
                 logger.error(
                     "Turn failed: debate=%s participant=%s phase=%s: %s",
                     debate.id, participant.id, phase, exc,
@@ -300,10 +311,13 @@ class DebateEngine:
                     structured_output={"failed": True, "error": str(exc)},
                 ))
                 await self.db.commit()
-                yield event(
-                    "turn_failed",
-                    content="This turn could not be generated.",
-                )
+
+                # If the provider never answered, later turns will fail the
+                # same way; let run_debate stop the debate instead.
+                if isinstance(exc.__cause__, LLMTransportError):
+                    self.blocked_reason = str(exc)
+
+                yield event("turn_failed", content=str(exc))
                 return
 
         self.db.add(DebateMessage(
@@ -372,6 +386,9 @@ class DebateEngine:
                     ):
                         yield turn_event
 
+                    if self.blocked_reason:
+                        raise RuntimeError(self.blocked_reason)
+
                 yield SSEDebateEvent(
                     event_type="phase_end",
                     phase=phase,
@@ -396,4 +413,4 @@ class DebateEngine:
             logger.error("Debate %s failed: %s", debate.id, exc, exc_info=True)
             debate.status = "FAILED"
             await self.db.commit()
-            yield SSEDebateEvent(event_type="error", content=str(exc))
+            yield SSEDebateEvent(event_type="error", content=redact(str(exc)))

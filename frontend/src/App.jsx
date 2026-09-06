@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
+import { SiteHeader } from './components/SiteHeader';
 import { LiveDebate } from './pages/LiveDebate';
 import { Setup } from './pages/Setup';
 import { Verdict } from './pages/Verdict';
@@ -12,6 +13,7 @@ import './screens.css';
 export default function App() {
   return (
     <BrowserRouter>
+      <SiteHeader />
       <Routes>
         <Route path="/" element={<Setup />} />
         <Route path="/debate/:id" element={<LiveDebate />} />

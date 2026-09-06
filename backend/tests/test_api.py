@@ -104,7 +104,13 @@ class TestDebateCreation:
         assert len(body["participants"]) == 2
 
     async def test_the_client_cannot_choose_the_model_settings(self, client):
-        """Model config comes from the environment, never from the request."""
+        """Model config comes from the environment, never from the request.
+
+        Asserted against the configured values rather than literals, so the
+        suite does not depend on whatever is in the developer's own .env.
+        """
+        from app.core.config import settings
+
         friend_ids = await create_friends(client)
         response = await client.post("/api/debates", json={
             "topic": "Is remote work better than office work?",
@@ -116,8 +122,12 @@ class TestDebateCreation:
         assert response.status_code == 201
 
         body = response.json()
-        assert body["temperature"] == 0.8
-        assert body["max_tokens"] == 500
+        assert body["temperature"] == settings.DEBATE_TEMPERATURE
+        assert body["max_tokens"] == settings.DEBATE_MAX_TOKENS
+        assert body["model_name"] == settings.LLM_MODEL
+        # The values the client tried to set were ignored outright.
+        assert body["temperature"] != 0.1
+        assert body["max_tokens"] != 4000
 
     async def test_rejects_three_participants(self, client):
         friend_ids = await create_friends(client)

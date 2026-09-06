@@ -17,6 +17,7 @@ from typing import AsyncGenerator
 from uuid import UUID
 
 from app.core.database import AsyncSessionLocal
+from app.llm.errors import redact
 from app.llm.factory import get_llm_provider
 from app.models import Debate
 from app.schemas import SSEDebateEvent
@@ -101,6 +102,6 @@ async def _run(debate_id: UUID, broadcast: DebateBroadcast) -> None:
                 broadcast.publish(event)
     except Exception as exc:
         logger.error("Debate %s crashed: %s", debate_id, exc, exc_info=True)
-        broadcast.publish(SSEDebateEvent(event_type="error", content=str(exc)))
+        broadcast.publish(SSEDebateEvent(event_type="error", content=redact(str(exc))))
     finally:
         broadcast.finish()

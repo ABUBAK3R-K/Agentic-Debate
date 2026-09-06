@@ -1,7 +1,12 @@
-"""Google Gemini LLM provider implementation.
+"""Google Gemini LLM provider.
 
-Uses the Gemini REST API via httpx.  Supports text generation,
-structured (JSON) generation, and streaming.
+Talks to the Gemini REST API over httpx: text, structured (JSON), and
+streaming generation.
+
+The API key travels in the `x-goog-api-key` header, never in the query string.
+Providers put the request URL into their error messages, those messages end up
+in logs and in what the frontend is told, and a key in the URL leaks through
+every one of those paths.
 """
 
 import json
@@ -13,6 +18,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.llm.base import LLMProvider
+from app.llm.transport import classify, pacer, request_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +41,14 @@ class GeminiProvider(LLMProvider):
     # ------------------------------------------------------------------ #
 
     def _url(self, action: str = "generateContent") -> str:
-        return (
-            f"{self.base_url}/models/{self.model}:{action}"
-            f"?key={self.api_key}"
-        )
+        """The endpoint. Deliberately free of credentials."""
+        return f"{self.base_url}/models/{self.model}:{action}"
+
+    def _headers(self) -> dict:
+        return {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
 
     @staticmethod
     def _to_gemini_contents(
@@ -91,6 +101,23 @@ class GeminiProvider(LLMProvider):
             body["generationConfig"]["responseMimeType"] = response_mime_type
         return body
 
+    @staticmethod
+    def _first_text(payload: dict) -> str:
+        """Pull the text out of a Gemini response, or say why there isn't any."""
+        candidates = payload.get("candidates") or []
+        if not candidates:
+            reason = (payload.get("promptFeedback") or {}).get("blockReason")
+            raise ValueError(f"Gemini returned no candidates (blockReason={reason})")
+
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        text = "".join(part.get("text", "") for part in parts)
+        if not text:
+            raise ValueError(
+                f"Gemini returned an empty candidate "
+                f"(finishReason={candidates[0].get('finishReason')})"
+            )
+        return text
+
     # ------------------------------------------------------------------ #
     # public API
     # ------------------------------------------------------------------ #
@@ -109,11 +136,12 @@ class GeminiProvider(LLMProvider):
             temperature=temperature, max_tokens=max_tokens, top_p=top_p,
         )
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            logger.info("Gemini request: model=%s, tokens=%s", self.model, max_tokens)
-            resp = await client.post(self._url(), json=body)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+            response = await request_with_retry(
+                client, "POST", self._url(),
+                headers=self._headers(), json=body,
+                context=f"Gemini text ({self.model})",
+            )
+        return self._first_text(response.json())
 
     async def generate_structured(
         self,
@@ -131,14 +159,16 @@ class GeminiProvider(LLMProvider):
             response_mime_type="application/json",
         )
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            logger.info("Gemini structured request: model=%s", self.model)
-            resp = await client.post(self._url(), json=body)
-            resp.raise_for_status()
-            raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            response = await request_with_retry(
+                client, "POST", self._url(),
+                headers=self._headers(), json=body,
+                context=f"Gemini structured ({self.model})",
+            )
 
         # Strict validation. Recovery (retry → lenient parser → fail) is
         # centralized in app.llm.structured so every caller escalates alike.
-        return response_model.model_validate_json(raw)
+        return response_model.model_validate_json(self._first_text(response.json()))
+
     async def generate_stream(
         self,
         system_prompt: str,
@@ -154,28 +184,45 @@ class GeminiProvider(LLMProvider):
             temperature=temperature, max_tokens=max_tokens, top_p=top_p,
             response_mime_type="application/json" if json_output else None,
         )
+        url = self._url("streamGenerateContent") + "?alt=sse"
+
+        # A stream cannot be retried once it has started emitting, so the
+        # retry here covers only opening it. Failures after that fall back to
+        # the non-streaming path in app.llm.structured.
+        await pacer.wait()
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
-                "POST",
-                self._url("streamGenerateContent") + "&alt=sse",
-                json=body,
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload = line[6:].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(payload)
-                        parts = (
-                            chunk.get("candidates", [{}])[0]
-                            .get("content", {})
-                            .get("parts", [])
+            try:
+                async with client.stream(
+                    "POST", url, headers=self._headers(), json=body,
+                ) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
+                        raise classify(
+                            httpx.HTTPStatusError(
+                                f"{response.status_code} from Gemini",
+                                request=response.request,
+                                response=response,
+                            ),
+                            response,
                         )
-                        for part in parts:
-                            if text := part.get("text"):
-                                yield text
-                    except (json.JSONDecodeError, IndexError, KeyError):
-                        continue
+
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        payload = line[6:].strip()
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(payload)
+                            parts = (
+                                chunk.get("candidates", [{}])[0]
+                                .get("content", {})
+                                .get("parts", [])
+                            )
+                            for part in parts:
+                                if text := part.get("text"):
+                                    yield text
+                        except (json.JSONDecodeError, IndexError, KeyError):
+                            continue
+            except httpx.HTTPError as exc:
+                raise classify(exc) from exc

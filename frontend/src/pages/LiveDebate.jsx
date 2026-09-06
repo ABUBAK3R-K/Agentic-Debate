@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Aisle } from '../components/Aisle';
 import { SimulationNotice } from '../components/SimulationNotice';
@@ -55,7 +55,10 @@ export function LiveDebate() {
       <h1 className="motion">{debate.topic || ' '}</h1>
 
       {debate.status === 'error' && (
-        <p className="error">{debate.error}</p>
+        <div className="debate-error">
+          <p className="error">{debate.error}</p>
+          <Link className="button button-quiet" to="/">Start another debate</Link>
+        </div>
       )}
 
       <Aisle

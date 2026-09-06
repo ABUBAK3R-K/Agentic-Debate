@@ -227,6 +227,13 @@
   font-style: italic;
 }
 
+.debate-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .debate-footer { border-top: 1px solid var(--rule); padding-top: 1.5rem; }
 
 /* --------------------------------------------------------------------------
@@ -351,3 +358,48 @@
 @keyframes fade-in {
   to { opacity: 1; }
 }
+
+/* --------------------------------------------------------------------------
+   Site header — one bar, one destination.
+
+   Sticky, because a debate transcript is long and the way out shouldn't be at
+   the bottom of it. Solid ground and a hairline rule, no shadow: it sits over
+   the verdict's full-bleed wash without competing with it.
+   -------------------------------------------------------------------------- */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem clamp(1.25rem, 4vw, 2rem);
+  background: var(--stage);
+  border-bottom: 1px solid var(--rule);
+}
+
+.site-name {
+  font-size: 1.4rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-home {
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.site-home:hover {
+  color: var(--text);
+  border-bottom-color: var(--text-muted);
+}
+
+/* The masthead sits right under the header; it needs less room above it. */
+.page > .masthead:first-child { padding-top: 0; }
+
+.masthead-title { max-width: 18ch; }

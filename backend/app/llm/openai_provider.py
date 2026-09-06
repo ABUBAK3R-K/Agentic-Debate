@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.llm.base import LLMProvider
+from app.llm.transport import classify, pacer, request_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -77,15 +78,12 @@ class OpenAIProvider(LLMProvider):
             temperature=temperature, max_tokens=max_tokens, top_p=top_p,
         )
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            logger.info("LLM request: model=%s, tokens=%s", self.model, max_tokens)
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json=body,
+            resp = await request_with_retry(
+                client, "POST", f"{self.base_url}/chat/completions",
+                headers=self._headers(), json=body,
+                context=f"OpenAI text ({self.model})",
             )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        return resp.json()["choices"][0]["message"]["content"]
 
     async def generate_structured(
         self,
@@ -104,18 +102,17 @@ class OpenAIProvider(LLMProvider):
             response_format={"type": "json_object"},
         )
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            logger.info("LLM structured request: model=%s", self.model)
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json=body,
+            resp = await request_with_retry(
+                client, "POST", f"{self.base_url}/chat/completions",
+                headers=self._headers(), json=body,
+                context=f"OpenAI structured ({self.model})",
             )
-            resp.raise_for_status()
-            raw = resp.json()["choices"][0]["message"]["content"]
+        raw = resp.json()["choices"][0]["message"]["content"]
 
         # Strict validation. Recovery (retry → lenient parser → fail) is
         # centralized in app.llm.structured so every caller escalates alike.
         return response_model.model_validate_json(raw)
+
     async def generate_stream(
         self,
         system_prompt: str,
@@ -132,21 +129,39 @@ class OpenAIProvider(LLMProvider):
             stream=True,
             **({"response_format": {"type": "json_object"}} if json_output else {}),
         )
+        # A stream cannot be retried once it has started emitting, so only
+        # opening it is protected; later failures fall back to the
+        # non-streaming path in app.llm.structured.
+        await pacer.wait()
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json=body,
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload = line[6:]
-                    if payload.strip() == "[DONE]":
-                        break
-                    chunk = json.loads(payload)
-                    delta = chunk["choices"][0].get("delta", {})
-                    if content := delta.get("content"):
-                        yield content
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers=self._headers(),
+                    json=body,
+                ) as resp:
+                    if resp.status_code >= 400:
+                        await resp.aread()
+                        raise classify(
+                            httpx.HTTPStatusError(
+                                f"{resp.status_code} from the provider",
+                                request=resp.request, response=resp,
+                            ),
+                            resp,
+                        )
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        payload = line[6:]
+                        if payload.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(payload)
+                            delta = chunk["choices"][0].get("delta", {})
+                            if content := delta.get("content"):
+                                yield content
+                        except (json.JSONDecodeError, IndexError, KeyError):
+                            continue
+            except httpx.HTTPError as exc:
+                raise classify(exc) from exc
