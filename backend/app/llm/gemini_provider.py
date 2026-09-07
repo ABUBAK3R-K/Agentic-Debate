@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.llm.base import LLMProvider
-from app.llm.transport import classify, pacer, request_with_retry
+from app.llm.transport import request_with_retry, stream_lines_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -186,43 +186,34 @@ class GeminiProvider(LLMProvider):
         )
         url = self._url("streamGenerateContent") + "?alt=sse"
 
-        # A stream cannot be retried once it has started emitting, so the
-        # retry here covers only opening it. Failures after that fall back to
-        # the non-streaming path in app.llm.structured.
-        await pacer.wait()
+        # Opening the stream is retried like any other request — nothing has
+        # reached the screen yet. A failure *after* the first token cannot be
+        # replayed without duplicating text, so it falls back to the
+        # non-streaming path in app.llm.structured instead.
         async with httpx.AsyncClient(timeout=self.timeout) as client:
+            lines = stream_lines_with_retry(
+                client, "POST", url, headers=self._headers(), json=body,
+                context=f"Gemini stream ({self.model})",
+            )
             try:
-                async with client.stream(
-                    "POST", url, headers=self._headers(), json=body,
-                ) as response:
-                    if response.status_code >= 400:
-                        await response.aread()
-                        raise classify(
-                            httpx.HTTPStatusError(
-                                f"{response.status_code} from Gemini",
-                                request=response.request,
-                                response=response,
-                            ),
-                            response,
+                async for line in lines:
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(payload)
+                        parts = (
+                            chunk.get("candidates", [{}])[0]
+                            .get("content", {})
+                            .get("parts", [])
                         )
-
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        payload = line[6:].strip()
-                        if payload == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(payload)
-                            parts = (
-                                chunk.get("candidates", [{}])[0]
-                                .get("content", {})
-                                .get("parts", [])
-                            )
-                            for part in parts:
-                                if text := part.get("text"):
-                                    yield text
-                        except (json.JSONDecodeError, IndexError, KeyError):
-                            continue
-            except httpx.HTTPError as exc:
-                raise classify(exc) from exc
+                        for part in parts:
+                            if text := part.get("text"):
+                                yield text
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+            finally:
+                # Release the connection before the client closes under it.
+                await lines.aclose()

@@ -57,7 +57,7 @@ export function LiveDebate() {
       {debate.status === 'error' && (
         <div className="debate-error">
           <p className="error">{debate.error}</p>
-          <Link className="button button-quiet" to="/">Start another debate</Link>
+          <Link className="button button-quiet" to="/new">Start another debate</Link>
         </div>
       )}
 

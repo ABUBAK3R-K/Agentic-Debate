@@ -87,16 +87,34 @@ gets validated structured output.
   query string ends up in every provider error message, and those messages
   reach both the logs and the browser. Every user-facing error string passes
   through `app.llm.errors.redact` first.
-- **Pace the provider.** One debate is nine requests back to back, which walks
-  straight into a free tier's per-minute limit. `app/llm/transport.py` holds a
-  process-wide minimum interval between requests plus retry-with-backoff that
-  honours the provider's own `Retry-After` / `retryDelay`. Tune with
-  `LLM_MIN_REQUEST_INTERVAL`.
+- **Pace the provider against tokens, not requests.** The limit a debate runs
+  into is tokens per minute, not requests per minute — a free Groq key allows
+  1000 requests a *day* and 8000 tokens a *minute*, and one turn costs one to
+  three thousand. `app/llm/transport.py` reads the provider's own
+  `x-ratelimit-*-tokens` headers and waits for the stated reset when the
+  remaining budget no longer covers a request the size of the ones we have
+  been making; the reserve tunes itself from observed usage.
+  `LLM_MIN_REQUEST_INTERVAL` is only a floor underneath that.
+- **A 429 pauses every caller, not just the one refused.** The limit is
+  metered per key, so `pacer.pause()` holds the whole process for the
+  provider's advised delay. Without it a rate-limited stream falls straight
+  through to its non-streaming fallback and spends a second request against
+  the limit that just said no.
+- **A rate limit is a time, not a failure.** Transient failures (timeouts,
+  5xx) are counted against `LLM_MAX_RETRIES`; 429s are bounded by total time
+  waited (`LLM_RATE_LIMIT_BUDGET`) instead. Counting them abandons a turn that
+  only needed another thirty seconds, which is exactly how a round comes back
+  empty. Opening a stream is retried like any other request — nothing has
+  reached the screen yet; only a failure *after* the first token falls back to
+  the non-streaming path, because replaying would duplicate text.
 - **Transport failures are not output failures.** A 429 or a 5xx means "ask
   again later" and must not be escalated through the structured-output chain —
   that just spends more requests against the limit that already refused. A
   turn that fails this way stops the debate rather than leaving every
-  remaining round empty.
+  remaining round empty. The exception is a provider refusing *its own
+  generation* (Groq answers unparseable output with a 400
+  `json_validate_failed`): that is `LLMOutputRejected`, deliberately not a
+  transport error, because the recovery chain is what fixes it.
 - **Structured output discipline.** Ask for typed Pydantic output. On failure:
   retry once → fall back to a lenient parser → mark the turn failed. Never
   silently continue with invalid data.
@@ -156,7 +174,7 @@ divider), visible keyboard focus on every interactive element, respect
 ```bash
 # Backend (from backend/) — deps live in backend/.venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe -m pytest             # 115 tests, no network, no DB
+.venv/Scripts/python.exe -m pytest             # 151 tests, no network, no DB
 .venv/Scripts/python.exe init_db.py            # create tables
 .venv/Scripts/python.exe -m uvicorn app.main:app --reload
 

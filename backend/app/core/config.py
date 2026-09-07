@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     LLM_BACKOFF_BASE: float = 2.0
     LLM_MAX_BACKOFF: float = 60.0
 
+    # How long one call may spend waiting out rate limits, in seconds.
+    # A 429 is not a failure the way a timeout is — it is the provider saying
+    # when it will be ready — and a tokens-per-minute ceiling can hold a turn
+    # back through more than one window. Counting those waits against
+    # LLM_MAX_RETRIES would abandon a turn that was only ever going to need
+    # another thirty seconds, so they are bounded by total time instead.
+    LLM_RATE_LIMIT_BUDGET: float = 180.0
+
     # CORS — comma-separated list of allowed frontend origins.
     CORS_ORIGINS: str = "http://localhost:5173"
 

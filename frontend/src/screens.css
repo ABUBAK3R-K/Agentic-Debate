@@ -403,3 +403,165 @@
 .page > .masthead:first-child { padding-top: 0; }
 
 .masthead-title { max-width: 18ch; }
+
+/* --------------------------------------------------------------------------
+   Landing — the cold open.
+
+   Full-bleed sections separated by hairline rules rather than a page of
+   floating cards. Everything shown is something the product does: the four
+   rounds are the four rounds, the sample exchange uses the transcript's own
+   podium markup, and the aisle is the same aisle.
+   -------------------------------------------------------------------------- */
+
+.landing {
+  width: 100%;
+  padding-bottom: 5rem;
+}
+
+.landing > section {
+  width: 100%;
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vw, 4.5rem) clamp(1.25rem, 4vw, 2rem);
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2.5rem, 6vw, 4rem);
+}
+
+.hero-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+.hero-title {
+  font-size: clamp(3.2rem, 11vw, 7.5rem);
+  max-width: 12ch;
+}
+
+.hero-line {
+  max-width: 54ch;
+  font-size: clamp(1rem, 1.6vw, 1.125rem);
+  color: var(--text-muted);
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+}
+
+.hero-note { color: var(--text-muted); }
+
+/* The sample exchange. A flat panel, no radius and no shadow — it is the
+   transcript surface, shown at rest. */
+.hero-stage {
+  background: var(--panel);
+  padding: clamp(1.5rem, 4vw, 2.5rem) 0;
+}
+
+.stage-side { min-width: 0; }
+
+.stage-side .side-head { margin-bottom: 1.25rem; }
+
+/* --------------------------------------------------------------------------
+   The card of rounds
+   -------------------------------------------------------------------------- */
+
+.strip { border-top: 1px solid var(--rule); }
+
+.strip-heading {
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  margin-bottom: 2rem;
+}
+
+.card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0;
+}
+
+.card-item {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 1.25rem clamp(1rem, 2vw, 1.75rem) 1.5rem 0;
+  border-top: 1px solid var(--rule);
+}
+
+/* Round numbers get display type — the same treatment they get on the rail. */
+.card-round {
+  font-size: clamp(2.75rem, 6vw, 3.75rem);
+  color: var(--text-muted);
+  line-height: 0.8;
+}
+
+.card-name {
+  font-size: 1.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.card-line {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  max-width: 34ch;
+}
+
+.card-bookends {
+  margin-top: 1.75rem;
+  max-width: 58ch;
+}
+
+/* --------------------------------------------------------------------------
+   The rules of the arena
+   -------------------------------------------------------------------------- */
+
+.rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0 clamp(1.5rem, 4vw, 3rem);
+}
+
+.rule {
+  border-top: 1px solid var(--rule);
+  padding: 1.25rem 0 1.75rem;
+}
+
+.rule-title {
+  font-size: 1.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.rule-line {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  max-width: 40ch;
+}
+
+/* --------------------------------------------------------------------------
+   Closing
+   -------------------------------------------------------------------------- */
+
+.closing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.75rem;
+}
+
+.closing-title {
+  font-size: clamp(2.4rem, 6vw, 4rem);
+  max-width: 14ch;
+}
+
+@media (max-width: 760px) {
+  .card-item { padding-right: 0; }
+}

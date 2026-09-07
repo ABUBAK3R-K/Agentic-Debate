@@ -75,10 +75,52 @@ class LLMTransportError(LLMError):
     )
 
 
+class LLMRequestRejected(LLMTransportError):
+    """The provider understood the request and refused it.
+
+    A missing model, a bad key, a malformed body. Asking again changes
+    nothing, so this inherits the transport rule that stops the
+    structured-output chain — but it carries the provider's own explanation
+    instead of "could not be reached", because the fix is in the config and
+    the operator needs to be told which part.
+    """
+
+    def __init__(self, message: str, detail: str | None = None):
+        super().__init__(message)
+        self.user_message = (
+            f"The model provider rejected the request: {redact(detail)}"
+            if detail
+            else "The model provider rejected the request."
+        )
+
+
+class LLMOutputRejected(LLMError):
+    """The provider refused the *answer it generated*, not the request.
+
+    Groq answers a completion that is not valid JSON with a 400
+    `json_validate_failed` rather than handing the broken text back. That is
+    the model failing at the format, which is exactly what the
+    structured-output recovery chain exists for — so unlike its 4xx
+    neighbours this is deliberately **not** an :class:`LLMTransportError`.
+    Escalating it (retry, then a plain-text call the format cannot fail) is
+    what fixes it; stopping the debate is not.
+    """
+
+    user_message = "The model did not return usable structured output."
+
+    def __init__(self, message: str, detail: str | None = None):
+        super().__init__(message)
+        self.detail = redact(detail) if detail else None
+
+
 class LLMRateLimited(LLMTransportError):
     """The provider refused because we are over its rate limit.
 
     `retry_after` is the provider's own advice in seconds when it gave any.
+
+    The provider's own explanation is kept, because the fix depends on which
+    limit was hit: a tokens-per-minute ceiling clears itself in under a
+    minute, while an exhausted daily request quota does not clear at all.
     """
 
     user_message = (
@@ -87,6 +129,17 @@ class LLMRateLimited(LLMTransportError):
         "LLM_MIN_REQUEST_INTERVAL to space the requests further apart."
     )
 
-    def __init__(self, message: str, retry_after: float | None = None):
+    def __init__(
+        self,
+        message: str,
+        retry_after: float | None = None,
+        detail: str | None = None,
+    ):
         super().__init__(message)
         self.retry_after = retry_after
+        self.detail = redact(detail) if detail else None
+        if detail:
+            self.user_message = (
+                f"The model provider is rate limiting this API key: "
+                f"{self.detail}"
+            )

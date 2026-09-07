@@ -92,10 +92,10 @@ export function Setup() {
   return (
     <main className="page">
       <header className="masthead">
-        {/* The name lives in the site header now, so this is the hero line. */}
-        <h1 className="masthead-title">Same model. Different minds.</h1>
+        {/* The hero line lives on the landing page; this screen is the work. */}
+        <h1 className="masthead-title">Tonight's card</h1>
         <p className="masthead-tagline">
-          Describe two friends, then watch one model argue as both of them.
+          Two descriptions and a motion. The arena assigns the sides.
         </p>
       </header>
 

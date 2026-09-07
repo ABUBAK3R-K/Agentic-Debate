@@ -39,7 +39,7 @@ export function Verdict() {
     return (
       <main className="page">
         <p className="error">{error}</p>
-        <Link className="button button-quiet" to="/">Start another debate</Link>
+        <Link className="button button-quiet" to="/new">Start another debate</Link>
       </main>
     );
   }
@@ -83,7 +83,7 @@ export function Verdict() {
           <Note label="Weakest argument" text={result.weakest_argument} />
         </section>
 
-        <Link className="button button-quiet" to="/">Start another debate</Link>
+        <Link className="button button-quiet" to="/new">Start another debate</Link>
       </div>
     </main>
   );

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.llm.base import LLMProvider
-from app.llm.transport import classify, pacer, request_with_retry
+from app.llm.transport import request_with_retry, stream_lines_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -129,39 +129,30 @@ class OpenAIProvider(LLMProvider):
             stream=True,
             **({"response_format": {"type": "json_object"}} if json_output else {}),
         )
-        # A stream cannot be retried once it has started emitting, so only
-        # opening it is protected; later failures fall back to the
-        # non-streaming path in app.llm.structured.
-        await pacer.wait()
+        # Opening the stream is retried like any other request — nothing has
+        # reached the screen yet. A failure *after* the first token cannot be
+        # replayed without duplicating text, so it falls back to the
+        # non-streaming path in app.llm.structured instead.
         async with httpx.AsyncClient(timeout=self.timeout) as client:
+            lines = stream_lines_with_retry(
+                client, "POST", f"{self.base_url}/chat/completions",
+                headers=self._headers(), json=body,
+                context=f"OpenAI stream ({self.model})",
+            )
             try:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/chat/completions",
-                    headers=self._headers(),
-                    json=body,
-                ) as resp:
-                    if resp.status_code >= 400:
-                        await resp.aread()
-                        raise classify(
-                            httpx.HTTPStatusError(
-                                f"{resp.status_code} from the provider",
-                                request=resp.request, response=resp,
-                            ),
-                            resp,
-                        )
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        payload = line[6:]
-                        if payload.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(payload)
-                            delta = chunk["choices"][0].get("delta", {})
-                            if content := delta.get("content"):
-                                yield content
-                        except (json.JSONDecodeError, IndexError, KeyError):
-                            continue
-            except httpx.HTTPError as exc:
-                raise classify(exc) from exc
+                async for line in lines:
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:]
+                    if payload.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(payload)
+                        delta = chunk["choices"][0].get("delta", {})
+                        if content := delta.get("content"):
+                            yield content
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+            finally:
+                # Release the connection before the client closes under it.
+                await lines.aclose()
