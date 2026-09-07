@@ -109,3 +109,46 @@ class TestVerdictMapping:
         rogue = FakeLLM(structured_responses=[judge_verdict("Participant Q")])
         with pytest.raises(ValueError, match="unknown participant"):
             await JudgeEngine(db, rogue).evaluate_debate(debate)
+
+
+class TestJudgeModelRouting:
+    """The judge may run on its own provider so it can be given a different
+    model, and with it a rate-limit budget the eight turns are not competing
+    for. It is the request most likely to be refused: it comes last, when the
+    window is fullest."""
+
+    async def test_the_judge_uses_the_judge_provider_when_given_one(
+        self, db, two_friends
+    ):
+        debaters = FakeLLM(structured_responses=debate_script()[:-1])  # turns only
+        judge = FakeLLM(structured_responses=[judge_verdict()])
+
+        engine = DebateEngine(db, debaters, judge_llm=judge)
+        debate = await engine.create_debate(
+            topic="Is remote work better than office work?",
+            participant_friend_ids=[f.id for f in two_friends],
+            model_provider="test", model_name="test-model",
+            temperature=0.8, top_p=1.0, max_tokens=500,
+        )
+        async for _ in engine.run_debate(debate):
+            pass
+
+        assert len(judge.calls) == 1, "the judge ran exactly once, on its own provider"
+        assert not any(c["kind"] == "structured" and "impartial" in c["system_prompt"]
+                       for c in debaters.calls), "no judging on the debaters' provider"
+
+    async def test_it_falls_back_to_the_debaters_provider(self, db, two_friends):
+        """One-argument construction is what every other caller uses."""
+        llm = FakeLLM(structured_responses=debate_script())
+
+        engine = DebateEngine(db, llm)
+        debate = await engine.create_debate(
+            topic="Is remote work better than office work?",
+            participant_friend_ids=[f.id for f in two_friends],
+            model_provider="test", model_name="test-model",
+            temperature=0.8, top_p=1.0, max_tokens=500,
+        )
+        async for _ in engine.run_debate(debate):
+            pass
+
+        assert engine.judge_llm is llm

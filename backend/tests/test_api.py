@@ -29,7 +29,12 @@ async def client(monkeypatch):
     app.dependency_overrides[get_db] = override_db
     monkeypatch.setattr("app.core.database.AsyncSessionLocal", session_factory)
     monkeypatch.setattr(debate_runner, "AsyncSessionLocal", session_factory)
-    monkeypatch.setattr(debate_runner, "get_llm_provider", lambda: llm)
+    # Takes the optional model override the runner now passes when the judge
+    # is configured onto its own model; one scripted provider still answers
+    # every call, so a test script stays a flat list.
+    monkeypatch.setattr(
+        debate_runner, "get_llm_provider", lambda model=None: llm
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

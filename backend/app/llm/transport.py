@@ -28,6 +28,7 @@ import logging
 import random
 import re
 import time
+from collections import deque
 from typing import AsyncGenerator
 
 import httpx
@@ -56,6 +57,9 @@ MIN_TOKEN_RESERVE = 750.0
 # by round as the transcript accumulates, so the next turn always costs a
 # little more than the last one.
 TOKEN_RESERVE_HEADROOM = 1.25
+
+# The width of a requests-per-minute quota window, in seconds.
+REQUEST_WINDOW = 60.0
 
 # A provider that says the budget resets in an hour is describing a quota, not
 # a per-minute window; waiting that out is worse than failing honestly.
@@ -107,7 +111,7 @@ def _float_header(headers, name: str) -> float | None:
 class RequestPacer:
     """Paces outbound provider requests against the limit that actually bites.
 
-    It holds three separate reasons to wait and honours whichever is longest:
+    It holds four separate reasons to wait and honours whichever is longest:
 
     * LLM_MIN_REQUEST_INTERVAL — a fixed floor between requests.
     * a cooldown from a 429, applied to every caller, because the limit is
@@ -115,10 +119,18 @@ class RequestPacer:
     * the provider's own remaining token budget: when what is left no longer
       covers a request the size we have been making, wait for the reset it
       reported.
+    * LLM_REQUESTS_PER_MINUTE — a rolling count, for a provider that meters
+      requests instead of tokens and publishes no headers to read.
 
     The token reserve tunes itself from observed usage, so it costs nothing on
     a provider that reports no budget (Gemini) and needs no magic number that
     an operator would have to keep in sync with max_tokens.
+
+    The two configured limits are not interchangeable. A fixed interval slows
+    every request equally, including the first nine of a minute that were
+    always going to be allowed; a rolling window slows only the request that
+    would actually be refused. Where a provider states a per-minute request
+    quota, prefer the window and leave the interval at 0.
     """
 
     def __init__(self) -> None:
@@ -128,6 +140,11 @@ class RequestPacer:
         self._tokens_remaining: float | None = None
         self._tokens_reset_at = 0.0
         self._observed_cost = 0.0
+        # Timestamps of recent requests, per quota bucket, for providers
+        # that meter requests per minute rather than tokens. Gemini's quota
+        # is per model as well as per project, so a judge on its own model
+        # has its own budget and must not be counted against the debaters'.
+        self._recent: dict[str, deque[float]] = {}
 
     @property
     def _reserve(self) -> float:
@@ -143,8 +160,38 @@ class RequestPacer:
             return 0.0
         return min(self._tokens_reset_at, now + MAX_BUDGET_WAIT)
 
-    async def wait(self) -> None:
-        """Block until it is this caller's turn and the budget allows it."""
+    def _window_resume_at(self, now: float, bucket: str) -> float:
+        """When a requests-per-minute quota next has room, as monotonic time.
+
+        Some providers meter requests rather than tokens — Gemini's free tier
+        answers a 429 with `GenerateRequestsPerMinutePerProjectPerModel`, a
+        flat 15 a minute, and reports no headers at all to pace against.
+
+        The window rolls, so this is deliberately not a fixed gap between
+        requests. A debate is nine requests against a limit of fifteen, and
+        spacing them evenly would make every debate take as long as the
+        limit allows even when nothing else is running. Instead a burst goes
+        out at full speed and only the request that would actually exceed
+        the quota waits, until the oldest one ages out of the window.
+        """
+        limit = settings.LLM_REQUESTS_PER_MINUTE
+        if limit <= 0:
+            return 0.0
+        recent = self._recent.setdefault(bucket, deque())
+        while recent and now - recent[0] >= REQUEST_WINDOW:
+            recent.popleft()
+        if len(recent) < limit:
+            return 0.0
+        return recent[0] + REQUEST_WINDOW
+
+    async def wait(self, bucket: str = "default") -> None:
+        """Block until it is this caller's turn and the budget allows it.
+
+        `bucket` names the quota the request will be charged to — the model,
+        where a provider meters per model. Only the requests-per-minute
+        window is split by it; a 429 cooldown and the token budget stay
+        process-wide, because those are metered against the key.
+        """
         async with self._lock:
             now = time.monotonic()
             interval = settings.LLM_MIN_REQUEST_INTERVAL
@@ -152,12 +199,17 @@ class RequestPacer:
                 self._resume_at,
                 self._last + interval if interval > 0 else 0.0,
                 self._budget_resume_at(now),
+                self._window_resume_at(now, bucket),
             )
             delay = resume - now
             if delay > 0:
                 logger.debug("Pacing: holding the next request for %.1fs", delay)
                 await asyncio.sleep(delay)
             self._last = time.monotonic()
+            # Recorded after the wait, because what the quota counts is when
+            # the request actually goes out.
+            if settings.LLM_REQUESTS_PER_MINUTE > 0:
+                self._recent.setdefault(bucket, deque()).append(self._last)
             # Spent by definition: the next caller must re-read the headers
             # rather than trust a budget this request has already drawn on.
             self._tokens_remaining = None
@@ -431,13 +483,14 @@ async def request_with_retry(
     url: str,
     *,
     context: str,
+    bucket: str = "default",
     **kwargs,
 ) -> httpx.Response:
     """Make a paced request, retrying rate limits and transient failures."""
     budget = RetryBudget(context)
 
     while True:
-        await pacer.wait()
+        await pacer.wait(bucket)
         try:
             response = await client.request(method, url, **kwargs)
             response.raise_for_status()
@@ -459,6 +512,7 @@ async def stream_lines_with_retry(
     url: str,
     *,
     context: str,
+    bucket: str = "default",
     **kwargs,
 ) -> AsyncGenerator[str, None]:
     """Yield the lines of a streaming response, retrying failures on open.
@@ -473,7 +527,7 @@ async def stream_lines_with_retry(
     budget = RetryBudget(context)
 
     while True:
-        await pacer.wait()
+        await pacer.wait(bucket)
         emitted = False
         try:
             async with client.stream(method, url, **kwargs) as response:

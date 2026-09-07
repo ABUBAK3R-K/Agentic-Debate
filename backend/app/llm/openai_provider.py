@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 class OpenAIProvider(LLMProvider):
     """Concrete provider targeting the OpenAI chat-completions API."""
 
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         self.api_key = settings.LLM_API_KEY
-        self.model = settings.LLM_MODEL
+        self.model = model or settings.LLM_MODEL
         self.base_url = settings.LLM_BASE_URL
         self.timeout = 60.0
 
@@ -58,6 +58,15 @@ class OpenAIProvider(LLMProvider):
         }
         if response_format:
             body["response_format"] = response_format
+        # A reasoning model bills its hidden thinking against the same
+        # tokens-per-minute ceiling as the answer, and on a debate turn that
+        # thinking is worth several times the argument it produces — measured
+        # at ~2200 characters of reasoning for a ~1000-character opening.
+        # Turning it down cuts the budget a turn costs without changing what
+        # the turn says. Empty means "don't send it", which is what a model
+        # that has no reasoning setting needs.
+        if settings.LLM_REASONING_EFFORT:
+            body["reasoning_effort"] = settings.LLM_REASONING_EFFORT
         return body
 
     # ------------------------------------------------------------------ #
@@ -82,6 +91,7 @@ class OpenAIProvider(LLMProvider):
                 client, "POST", f"{self.base_url}/chat/completions",
                 headers=self._headers(), json=body,
                 context=f"OpenAI text ({self.model})",
+                bucket=self.model,
             )
         return resp.json()["choices"][0]["message"]["content"]
 
@@ -106,6 +116,7 @@ class OpenAIProvider(LLMProvider):
                 client, "POST", f"{self.base_url}/chat/completions",
                 headers=self._headers(), json=body,
                 context=f"OpenAI structured ({self.model})",
+                bucket=self.model,
             )
         raw = resp.json()["choices"][0]["message"]["content"]
 
@@ -123,11 +134,25 @@ class OpenAIProvider(LLMProvider):
         top_p: float = 1.0,
         json_output: bool = False,
     ) -> AsyncGenerator[str, None]:
+        # `json_output` deliberately does NOT switch on the provider's JSON
+        # mode here. An OpenAI-compatible provider in JSON mode buffers the
+        # whole completion and delivers it as a single chunk — measured
+        # against Groq, the same turn arrives in 1 chunk with
+        # `response_format` set and 227 without it, at the same latency. One
+        # chunk is not a stream: the live debate screen sits empty for the
+        # length of the turn and then paints the whole argument at once,
+        # which defeats JsonStringFieldExtractor and the token events built
+        # on top of it.
+        #
+        # The JSON still arrives, because the turn prompt demands it and
+        # `lenient_parse` tolerates fences or a stray sentence around it. The
+        # structured, non-streaming path in `generate_structured` keeps
+        # provider-enforced JSON, which is where strictness actually pays:
+        # nothing has to reach a screen mid-generation there.
         body = self._build_body(
             system_prompt, messages,
             temperature=temperature, max_tokens=max_tokens, top_p=top_p,
             stream=True,
-            **({"response_format": {"type": "json_object"}} if json_output else {}),
         )
         # Opening the stream is retried like any other request — nothing has
         # reached the screen yet. A failure *after* the first token cannot be
@@ -138,6 +163,7 @@ class OpenAIProvider(LLMProvider):
                 client, "POST", f"{self.base_url}/chat/completions",
                 headers=self._headers(), json=body,
                 context=f"OpenAI stream ({self.model})",
+                bucket=self.model,
             )
             try:
                 async for line in lines:

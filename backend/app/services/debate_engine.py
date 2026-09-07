@@ -58,9 +58,19 @@ PARTICIPANT_LABELS = ["Participant A", "Participant B"]
 class DebateEngine:
     """Orchestrates one debate from creation through to a stored verdict."""
 
-    def __init__(self, db: AsyncSession, llm: LLMProvider):
+    def __init__(
+        self,
+        db: AsyncSession,
+        llm: LLMProvider,
+        judge_llm: LLMProvider | None = None,
+    ):
         self.db = db
         self.llm = llm
+        # The judge may run on its own provider instance so it can be given a
+        # different model, and with it a separate rate-limit budget. Falling
+        # back to `llm` keeps the single-argument construction that every
+        # caller and test already uses.
+        self.judge_llm = judge_llm or llm
         # Set when the provider refuses on quota. Every later turn would fail
         # the same way, so the debate stops rather than filling the remaining
         # rounds with empty ones.
@@ -400,7 +410,7 @@ class DebateEngine:
 
             from app.services.judge_engine import JudgeEngine
 
-            verdict = await JudgeEngine(self.db, self.llm).evaluate_debate(debate)
+            verdict = await JudgeEngine(self.db, self.judge_llm).evaluate_debate(debate)
 
             await self._transition(debate, "COMPLETED")
             yield SSEDebateEvent(

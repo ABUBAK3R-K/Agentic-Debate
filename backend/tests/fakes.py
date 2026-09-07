@@ -25,10 +25,15 @@ class FakeLLM(LLMProvider):
         self,
         structured_responses: list | None = None,
         text_responses: list | None = None,
+        chunk_size: int | None = 7,
     ):
         self.structured_responses = list(structured_responses or [])
         self.text_responses = list(text_responses or [])
         self.calls: list[dict] = []
+        # `None` means "deliver the whole response as one chunk", which is
+        # what a real provider does in JSON mode. The default chunking made
+        # every test look like live streaming worked when it did not.
+        self.chunk_size = chunk_size
 
     def _next(self, queue: list, kind: str):
         if not queue:
@@ -87,11 +92,18 @@ class FakeLLM(LLMProvider):
         top_p=1.0,
         json_output=False,
     ) -> AsyncGenerator[str, None]:
-        """Stream the next scripted response, in small chunks.
+        """Stream the next scripted response.
 
         Streaming draws from the same queue as structured calls, so a script
         exercises whichever path the engine actually takes. Chunks are split
         at an awkward size on purpose, to land mid-word and mid-escape.
+
+        With `chunk_size=None` the whole response arrives in one chunk. That
+        is not a hypothetical: an OpenAI-compatible provider asked for JSON
+        mode buffers the completion and delivers it exactly that way, and
+        because this fake had no way to express it, the suite passed for a
+        build whose live debate screen never showed a word until each turn
+        was over.
         """
         self.calls.append({
             "kind": "stream",
@@ -104,8 +116,11 @@ class FakeLLM(LLMProvider):
         })
         value = self._next(self.structured_responses, "structured")
         raw = value if isinstance(value, str) else json.dumps(value)
-        for i in range(0, len(raw), 7):
-            yield raw[i : i + 7]
+        if self.chunk_size is None:
+            yield raw
+            return
+        for i in range(0, len(raw), self.chunk_size):
+            yield raw[i : i + self.chunk_size]
 
 
 def argument(text: str, **overrides) -> dict:

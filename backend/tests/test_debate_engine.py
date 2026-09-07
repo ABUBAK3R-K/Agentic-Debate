@@ -182,6 +182,56 @@ class TestTurns:
         assert message.structured_output["confidence"] == 0.9
 
 
+class TestLivePreview:
+    """A turn must reach the screen while it is being written, not after.
+
+    The whole token/`JsonStringFieldExtractor` pipeline exists for this, and
+    it is the part that silently stopped working: with the provider's JSON
+    mode switched on, a real turn arrived as a single chunk and the debate
+    screen sat empty for the length of every turn.
+    """
+
+    @staticmethod
+    async def _turn_events(db, friends, llm):
+        engine, debate = await make_debate(db, friends, llm)
+        await engine.assign_positions(debate)
+        participants = await engine._get_participants(debate.id)
+        context = await engine._load_participant_context(participants[0])
+        return [
+            e async for e in engine._run_turn(
+                debate, participants[0], context, "OPENING", 1, ""
+            )
+        ]
+
+    async def test_a_chunked_turn_is_previewed_progressively(self, db, two_friends):
+        text = "Remote work wins on focus, cost, and hiring reach."
+        events = await self._turn_events(
+            db, two_friends,
+            FakeLLM(structured_responses=[argument(text)], chunk_size=7),
+        )
+
+        tokens = [e for e in events if e.event_type == "token"]
+        assert len(tokens) > 1, (
+            "one token event for a whole turn is not a live preview"
+        )
+        assert "".join(e.content for e in tokens) == text
+        assert events[-1].content == text
+
+    async def test_a_single_chunk_turn_is_still_correct(self, db, two_friends):
+        """Degraded, but never wrong: `message` is the authoritative text."""
+        text = "Remote work wins on focus, cost, and hiring reach."
+        events = await self._turn_events(
+            db, two_friends,
+            FakeLLM(structured_responses=[argument(text)], chunk_size=None),
+        )
+
+        assert events[-1].event_type == "message"
+        assert events[-1].content == text
+
+        result = await db.execute(select(DebateMessage))
+        assert result.scalar_one().content == text
+
+
 class TestFullDebate:
     async def test_runs_all_four_rounds_and_completes(self, db, two_friends):
         llm = FakeLLM(structured_responses=debate_script())

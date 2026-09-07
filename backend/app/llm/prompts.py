@@ -121,6 +121,13 @@ def build_debate_system_prompt(persona: dict) -> str:
 # Each turn gets exactly: persona instructions (system), the topic, the
 # assigned position, the current phase, and the transcript so far. Nothing
 # else — no backend metadata.
+#
+# Length is stated in words, never in tokens. A model cannot count its own
+# tokens and treats the number as a loose suggestion: asked for "150 to 250
+# tokens" these prompts came back with arguments of 600 tokens and more,
+# which is both a wall of text on a screen built for short exchanges and,
+# eight turns deep with the transcript replayed each time, the thing that
+# runs a per-minute token budget dry mid-debate. Words it can count.
 # ---------------------------------------------------------------------------
 
 STRUCTURED_OUTPUT_INSTRUCTION = """
@@ -137,14 +144,14 @@ Return ONLY the JSON. No markdown fences, no commentary.
 
 
 def build_opening_prompt(topic: str, position: str) -> str:
-    """Opening statement — 150-250 tokens."""
+    """Opening statement — at most 120 words."""
     return (
         f"DEBATE TOPIC: {topic}\n\n"
         f"YOUR ASSIGNED POSITION: {position}\n\n"
         f"PHASE: Opening statement\n\n"
         f"Instructions:\n"
         f"- State your position on this topic and why you hold it.\n"
-        f"- Keep your argument between 150 and 250 tokens.\n\n"
+        f"- Write at most 120 words. Do not exceed it.\n\n"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 
@@ -158,7 +165,8 @@ def build_rebuttal_prompt(topic: str, position: str, transcript: str) -> str:
         f"TRANSCRIPT SO FAR:\n{transcript}\n\n"
         f"Instructions:\n"
         f"- Identify your opponent's strongest claim.\n"
-        f"- Challenge that claim directly.\n\n"
+        f"- Challenge that claim directly.\n"
+        f"- Write at most 120 words. Do not exceed it.\n\n"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 
@@ -173,13 +181,14 @@ def build_counter_prompt(topic: str, position: str, transcript: str) -> str:
         f"Instructions:\n"
         f"- Defend your position against the rebuttal.\n"
         f"- Find a weakness in your opponent's reasoning.\n"
-        f"- Add one new supporting point.\n\n"
+        f"- Add one new supporting point.\n"
+        f"- Write at most 120 words. Do not exceed it.\n\n"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 
 
 def build_closing_prompt(topic: str, position: str, transcript: str) -> str:
-    """Closing statement — 100-150 tokens."""
+    """Closing statement — at most 90 words."""
     return (
         f"DEBATE TOPIC: {topic}\n\n"
         f"YOUR ASSIGNED POSITION: {position}\n\n"
@@ -187,7 +196,7 @@ def build_closing_prompt(topic: str, position: str, transcript: str) -> str:
         f"TRANSCRIPT SO FAR:\n{transcript}\n\n"
         f"Instructions:\n"
         f"- Give your final, concise argument.\n"
-        f"- Keep it between 100 and 150 tokens.\n\n"
+        f"- Write at most 90 words. Do not exceed it.\n\n"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 

@@ -28,9 +28,9 @@ DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 class GeminiProvider(LLMProvider):
     """Concrete provider targeting the Google Gemini REST API."""
 
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         self.api_key = settings.LLM_API_KEY
-        self.model = settings.LLM_MODEL or "gemini-1.5-pro"
+        self.model = model or settings.LLM_MODEL or "gemini-1.5-pro"
         # LLM_BASE_URL lets this point at a proxy or a local stand-in; the
         # public endpoint is the default.
         self.base_url = (settings.LLM_BASE_URL or DEFAULT_GEMINI_BASE).rstrip("/")
@@ -99,6 +99,14 @@ class GeminiProvider(LLMProvider):
             body["systemInstruction"] = system_instruction
         if response_mime_type:
             body["generationConfig"]["responseMimeType"] = response_mime_type
+        # Thinking is billed as output, so on a model that does it by default
+        # it is a large share of what a debate costs — a third of every turn
+        # on gemini-2.5-flash. Sent only when configured, because a 3.x model
+        # rejects the field and needs nothing: it already does not think.
+        if settings.GEMINI_THINKING_BUDGET is not None:
+            body["generationConfig"]["thinkingConfig"] = {
+                "thinkingBudget": settings.GEMINI_THINKING_BUDGET
+            }
         return body
 
     @staticmethod
@@ -140,6 +148,7 @@ class GeminiProvider(LLMProvider):
                 client, "POST", self._url(),
                 headers=self._headers(), json=body,
                 context=f"Gemini text ({self.model})",
+                bucket=self.model,
             )
         return self._first_text(response.json())
 
@@ -163,6 +172,7 @@ class GeminiProvider(LLMProvider):
                 client, "POST", self._url(),
                 headers=self._headers(), json=body,
                 context=f"Gemini structured ({self.model})",
+                bucket=self.model,
             )
 
         # Strict validation. Recovery (retry → lenient parser → fail) is
@@ -194,6 +204,7 @@ class GeminiProvider(LLMProvider):
             lines = stream_lines_with_retry(
                 client, "POST", url, headers=self._headers(), json=body,
                 context=f"Gemini stream ({self.model})",
+                bucket=self.model,
             )
             try:
                 async for line in lines:

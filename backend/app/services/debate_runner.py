@@ -16,6 +16,7 @@ import logging
 from typing import AsyncGenerator
 from uuid import UUID
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.llm.errors import redact
 from app.llm.factory import get_llm_provider
@@ -97,7 +98,11 @@ async def _run(debate_id: UUID, broadcast: DebateBroadcast) -> None:
             if debate is None:
                 raise ValueError(f"Debate {debate_id} disappeared before it started")
 
-            engine = DebateEngine(db, get_llm_provider())
+            engine = DebateEngine(
+                db,
+                get_llm_provider(),
+                judge_llm=get_llm_provider(settings.JUDGE_MODEL),
+            )
             async for event in engine.run_debate(debate):
                 broadcast.publish(event)
     except Exception as exc:

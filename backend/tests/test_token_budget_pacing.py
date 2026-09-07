@@ -56,6 +56,14 @@ class FakeClock:
         self.slept.append(seconds)
         self.now += seconds
 
+    def advance(self, seconds: float) -> None:
+        """Move time on without anyone having waited for it.
+
+        Time a debate spends generating is not time the pacer slept, and a
+        rolling window cares about the difference.
+        """
+        self.now += seconds
+
     @property
     def total_slept(self) -> float:
         return sum(self.slept)
@@ -499,3 +507,103 @@ class TestTheDebateStillStopsOnAHardFailure:
 
         assert debate.status == "FAILED"
         assert sum(e.event_type == "turn_failed" for e in events) == 1
+
+
+class TestRequestsPerMinuteWindow:
+    """Gemini's free tier meters requests, not tokens, and sends no headers.
+
+    Its 429 names the quota outright:
+    GenerateRequestsPerMinutePerProjectPerModel-FreeTier, limit 15.
+    """
+
+    @pytest.fixture
+    def window(self, monkeypatch, pacer):
+        monkeypatch.setattr(settings, "LLM_REQUESTS_PER_MINUTE", 15)
+        return pacer
+
+    async def test_a_burst_that_fits_the_quota_is_not_slowed(self, window, clock):
+        """A debate is nine requests against a limit of fifteen.
+
+        A fixed interval would space these out even though every one of them
+        was always going to be allowed, which is the whole reason this is a
+        window and not a gap.
+        """
+        for _ in range(9):
+            await window.wait()
+
+        assert clock.total_slept == 0.0
+
+    async def test_the_request_that_would_exceed_the_quota_waits(
+        self, window, clock
+    ):
+        for _ in range(15):
+            await window.wait()
+        assert clock.total_slept == 0.0
+
+        await window.wait()  # the sixteenth
+
+        assert clock.total_slept == pytest.approx(60.0)
+
+    async def test_it_waits_only_for_the_oldest_request_to_age_out(
+        self, window, clock
+    ):
+        """Not a full minute from now — a rolling window frees one slot at a
+        time, so the wait is however long is left on the oldest one."""
+        await window.wait()
+        clock.advance(50.0)
+        for _ in range(14):
+            await window.wait()
+
+        await window.wait()
+
+        # Ten seconds left on the first request, not sixty.
+        assert clock.total_slept == pytest.approx(10.0)
+
+    async def test_zero_disables_it(self, pacer, monkeypatch, clock):
+        monkeypatch.setattr(settings, "LLM_REQUESTS_PER_MINUTE", 0)
+
+        for _ in range(50):
+            await pacer.wait()
+
+        assert clock.total_slept == 0.0
+
+
+class TestPerModelWindows:
+    """Gemini meters per model as well as per project, so a judge on its own
+    model has its own budget. Counting it against the debaters' would make
+    the split look configured while changing nothing."""
+
+    @pytest.fixture
+    def window(self, monkeypatch, pacer):
+        monkeypatch.setattr(settings, "LLM_REQUESTS_PER_MINUTE", 15)
+        return pacer
+
+    async def test_one_bucket_filling_up_does_not_hold_up_another(
+        self, window, clock
+    ):
+        for _ in range(15):
+            await window.wait("flash-lite")
+        assert clock.total_slept == 0.0
+
+        await window.wait("other-model")
+
+        assert clock.total_slept == 0.0, "a separate quota was made to wait"
+
+    async def test_a_bucket_still_throttles_itself(self, window, clock):
+        for _ in range(15):
+            await window.wait("flash-lite")
+        await window.wait("other-model")
+
+        await window.wait("flash-lite")
+
+        assert clock.total_slept == pytest.approx(60.0)
+
+    async def test_the_default_bucket_is_shared_by_callers_that_name_none(
+        self, window, clock
+    ):
+        for _ in range(15):
+            await window.wait()
+
+        await window.wait()
+
+        assert clock.total_slept == pytest.approx(60.0)
