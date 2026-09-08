@@ -1,5 +1,16 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
+
+# The repo root, found from this file rather than from the working directory.
+# `env_file` is resolved relative to the *cwd*, so a relative "../.env" only
+# works when the process happens to be started from `backend/`. Started from
+# the repo root instead, it silently matches nothing: no API key, and the
+# field defaults (gemini-1.5-pro, max_tokens 500) stand in for the tuned
+# config with no error anywhere. Anchoring it to this file makes the same
+# `.env` load from any working directory.
+ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
@@ -128,7 +139,7 @@ class Settings(BaseSettings):
         return v
 
     class Config:
-        env_file = "../.env"
+        env_file = ENV_FILE
         extra = "ignore"
 
 
