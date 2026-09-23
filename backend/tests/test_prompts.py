@@ -76,3 +76,23 @@ class TestTranscript:
 
     def test_an_empty_transcript_is_empty(self):
         assert format_transcript([]) == ""
+
+
+class TestPlainShortArguments:
+    def test_debaters_are_told_to_use_everyday_words(self):
+        prompt = build_debate_system_prompt(PERSONA_FIXTURE)
+        assert "HOW TO SPEAK" in prompt
+        assert "everyday words" in prompt
+
+    def test_every_turn_is_short(self):
+        from app.llm.prompts import CLOSING_WORD_LIMIT, TURN_WORD_LIMIT
+
+        assert TURN_WORD_LIMIT <= 60 and CLOSING_WORD_LIMIT <= 45
+        for phase in ("OPENING", "REBUTTAL", "COUNTER"):
+            assert f"at most {TURN_WORD_LIMIT} words" in build_turn_prompt(phase, "T", "FOR", "x")
+        assert f"at most {CLOSING_WORD_LIMIT} words" in build_turn_prompt("CLOSING", "T", "FOR", "x")
+
+    def test_the_judge_explains_itself_plainly(self):
+        from app.llm.prompts import JUDGE_SYSTEM_PROMPT
+
+        assert "plain" in JUDGE_SYSTEM_PROMPT

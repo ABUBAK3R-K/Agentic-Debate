@@ -120,6 +120,15 @@ function PersonaEntry({ person, onUpdate }) {
           : 'Not compiled yet.'}
       </p>
 
+      {person.persona && (
+        <Link
+          className="button button-quiet persona-compile"
+          to={`/new?with=${person.friend_id}`}
+        >
+          Use in a new debate
+        </Link>
+      )}
+
       {!person.persona && (
         <button
           type="button"

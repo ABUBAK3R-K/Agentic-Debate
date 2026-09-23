@@ -70,6 +70,20 @@ Weaknesses: {weaknesses}
 Communication style: {communication_style}
 Debate style: {debate_style}
 
+HOW TO SPEAK
+- Talk like a real person in a friendly argument, not like an essay.
+- Use everyday words a teenager would understand. No jargon, no fancy
+  vocabulary, no long words where a short one works.
+- Keep sentences short. Make one or two clear points per turn.
+- Every sentence must add something. No filler, no repeating yourself,
+  no dramatic build-up.
+- Show the persona through attitude and what you choose to say, not through
+  big words.
+- These speaking rules come before the persona's own vocabulary. Even a
+  formal, academic or pedantic persona says things simply here: "studies
+  show games can help memory", not "longitudinal research demonstrates
+  cognitive enhancement".
+
 RULES
 1. Defend your assigned position.
 2. Reason and speak the way this persona would.
@@ -130,6 +144,19 @@ def build_debate_system_prompt(persona: dict) -> str:
 # runs a per-minute token budget dry mid-debate. Words it can count.
 # ---------------------------------------------------------------------------
 
+# Short on purpose: each turn is read in a narrow column, and a debate is
+# only worth reading if every line of it earns its place.
+TURN_WORD_LIMIT = 60
+CLOSING_WORD_LIMIT = 45
+
+
+def _length_rule(limit: int) -> str:
+    return (
+        f"- Write at most {limit} words, in plain everyday language. "
+        f"Shorter is better once the point is made.\n\n"
+    )
+
+
 STRUCTURED_OUTPUT_INSTRUCTION = """
 You MUST respond with valid JSON matching this schema:
 {
@@ -144,14 +171,14 @@ Return ONLY the JSON. No markdown fences, no commentary.
 
 
 def build_opening_prompt(topic: str, position: str) -> str:
-    """Opening statement — at most 120 words."""
+    """Opening statement — at most TURN_WORD_LIMIT words."""
     return (
         f"DEBATE TOPIC: {topic}\n\n"
         f"YOUR ASSIGNED POSITION: {position}\n\n"
         f"PHASE: Opening statement\n\n"
         f"Instructions:\n"
         f"- State your position on this topic and why you hold it.\n"
-        f"- Write at most 120 words. Do not exceed it.\n\n"
+        f"{_length_rule(TURN_WORD_LIMIT)}"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 
@@ -166,7 +193,7 @@ def build_rebuttal_prompt(topic: str, position: str, transcript: str) -> str:
         f"Instructions:\n"
         f"- Identify your opponent's strongest claim.\n"
         f"- Challenge that claim directly.\n"
-        f"- Write at most 120 words. Do not exceed it.\n\n"
+        f"{_length_rule(TURN_WORD_LIMIT)}"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 
@@ -182,21 +209,21 @@ def build_counter_prompt(topic: str, position: str, transcript: str) -> str:
         f"- Defend your position against the rebuttal.\n"
         f"- Find a weakness in your opponent's reasoning.\n"
         f"- Add one new supporting point.\n"
-        f"- Write at most 120 words. Do not exceed it.\n\n"
+        f"{_length_rule(TURN_WORD_LIMIT)}"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 
 
 def build_closing_prompt(topic: str, position: str, transcript: str) -> str:
-    """Closing statement — at most 90 words."""
+    """Closing statement — at most CLOSING_WORD_LIMIT words."""
     return (
         f"DEBATE TOPIC: {topic}\n\n"
         f"YOUR ASSIGNED POSITION: {position}\n\n"
         f"PHASE: Closing statement\n\n"
         f"TRANSCRIPT SO FAR:\n{transcript}\n\n"
         f"Instructions:\n"
-        f"- Give your final, concise argument.\n"
-        f"- Write at most 90 words. Do not exceed it.\n\n"
+        f"- Give your final argument: the one reason your side should win.\n"
+        f"{_length_rule(CLOSING_WORD_LIMIT)}"
         f"{STRUCTURED_OUTPUT_INSTRUCTION}"
     )
 
@@ -269,6 +296,10 @@ You MUST respond with valid JSON matching this exact schema:
   "strongest_argument": "<the single strongest argument made by anyone>",
   "weakest_argument": "<the single weakest argument made by anyone>"
 }
+
+Write winner_reason, strongest_argument and weakest_argument in plain,
+everyday language: one or two short sentences each, no jargon. Refer to the
+participants only as "Participant A" and "Participant B".
 
 Return ONLY the JSON. No markdown fences, no commentary.
 """
