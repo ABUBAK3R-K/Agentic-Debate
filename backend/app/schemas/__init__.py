@@ -4,7 +4,14 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Upper bounds on what a user can send. Every one of these ends up inside a
+# prompt, and a prompt is paid for by the token; without a cap one request can
+# spend a free tier's whole per-minute budget or run up a paid bill.
+MAX_DESCRIPTION_CHARS = 2000
+MAX_TOPIC_CHARS = 300
+MAX_PERSONA_JSON_CHARS = 8000
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +53,7 @@ class PersonaProfile(BaseModel):
 
 class FriendCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    raw_description: str = Field(..., min_length=10)
+    raw_description: str = Field(..., min_length=10, max_length=MAX_DESCRIPTION_CHARS)
 
 
 class FriendResponse(BaseModel):
@@ -82,6 +89,21 @@ class PersonaUpdateRequest(BaseModel):
     """The user's edits to a compiled persona, saved as a new version."""
     persona: PersonaProfile
 
+    @field_validator("persona")
+    @classmethod
+    def bounded(cls, persona: PersonaProfile) -> PersonaProfile:
+        """Cap the edit as a whole rather than field by field.
+
+        PersonaProfile also validates the compiler's own output, where a
+        per-field cap would turn a slightly long answer into a failed compile.
+        Only what a user types is bounded here.
+        """
+        if len(persona.model_dump_json()) > MAX_PERSONA_JSON_CHARS:
+            raise ValueError(
+                f"Persona is too long (limit {MAX_PERSONA_JSON_CHARS} characters)"
+            )
+        return persona
+
 
 # ---------------------------------------------------------------------------
 # Debate schemas
@@ -90,7 +112,7 @@ class PersonaUpdateRequest(BaseModel):
 class DebateCreateRequest(BaseModel):
     """Exactly two participants. Model settings come from the environment,
     never from the client — see PRD "Critical model constraint"."""
-    topic: str = Field(..., min_length=5)
+    topic: str = Field(..., min_length=5, max_length=MAX_TOPIC_CHARS)
     participant_ids: list[UUID] = Field(..., min_length=2, max_length=2)
 
 
@@ -115,6 +137,48 @@ class DebateResponse(BaseModel):
     participants: list[ParticipantResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# History — past debates and saved personas, read back from the database
+# ---------------------------------------------------------------------------
+
+class DebateSummary(BaseModel):
+    """One row of the past-debates list."""
+    id: UUID
+    topic: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime]
+    participants: list[ParticipantResponse] = []
+    winner_participant_id: Optional[UUID] = None
+    winner_name: Optional[str] = None
+
+
+class DebateMessageResponse(BaseModel):
+    """One saved turn. `failed` turns have no content, by design."""
+    id: UUID
+    participant_id: UUID
+    round_number: int
+    phase: str
+    content: str
+    failed: bool = False
+
+
+class DebateTranscriptResponse(DebateSummary):
+    """A past debate as it was argued, turn by turn."""
+    messages: list[DebateMessageResponse] = []
+
+
+class SavedPersona(BaseModel):
+    """A friend and the latest version of their persona, if compiled."""
+    friend_id: UUID
+    name: str
+    raw_description: str
+    created_at: datetime
+    persona: Optional[PersonaProfile] = None
+    version: Optional[int] = None
+    debate_count: int = 0
 
 
 # ---------------------------------------------------------------------------

@@ -15,11 +15,13 @@ from app.schemas import (
     DebateCreateRequest,
     DebateResponse,
     DebateResultResponse,
+    DebateSummary,
+    DebateTranscriptResponse,
     ParticipantResponse,
     ParticipantResult,
     ParticipantScore,
 )
-from app.services import debate_runner
+from app.services import debate_runner, history_service
 from app.services.debate_engine import DebateEngine
 
 router = APIRouter(prefix="/api/debates", tags=["debates"])
@@ -70,6 +72,21 @@ async def _debate_response(debate: Debate, db: AsyncSession) -> DebateResponse:
         completed_at=debate.completed_at,
         participants=await _participants(debate.id, db),
     )
+
+
+@router.get("", response_model=list[DebateSummary])
+async def list_debates(db: AsyncSession = Depends(get_db)):
+    """Past debates, newest first."""
+    return await history_service.list_debates(db)
+
+
+@router.get("/{debate_id}", response_model=DebateTranscriptResponse)
+async def get_debate(debate_id: UUID, db: AsyncSession = Depends(get_db)):
+    """A saved debate with every turn as it was argued."""
+    transcript = await history_service.get_transcript(debate_id, db)
+    if transcript is None:
+        raise HTTPException(status_code=404, detail="Debate not found")
+    return transcript
 
 
 @router.post("", response_model=DebateResponse, status_code=201)

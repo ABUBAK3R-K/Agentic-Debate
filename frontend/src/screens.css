@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Screen layouts. Three screens, and nothing else exists yet.
+   Screen layouts.
    ========================================================================== */
 
 .page {
@@ -565,3 +565,106 @@
 @media (max-width: 760px) {
   .card-item { padding-right: 0; }
 }
+
+/* --------------------------------------------------------------------------
+   Site navigation — the header's destinations. The current page is marked
+   with the same hairline its hover state uses, not a pill or a colour.
+   -------------------------------------------------------------------------- */
+
+.site-nav {
+  display: flex;
+  align-items: baseline;
+  gap: clamp(0.9rem, 2.5vw, 1.6rem);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.site-home[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+/* On a phone the destinations take their own line under the name rather
+   than running off the edge of the screen. */
+@media (max-width: 560px) {
+  .site-header { flex-wrap: wrap; row-gap: 0.5rem; }
+  .site-nav { width: 100%; justify-content: flex-start; }
+}
+
+/* --------------------------------------------------------------------------
+   The record — past debates as a ruled list, one row per motion.
+   -------------------------------------------------------------------------- */
+
+.record {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.record-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 1.4rem 0 1.5rem;
+  border-top: 1px solid var(--rule);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.record li:first-child .record-row { border-top: none; padding-top: 0; }
+.record li:last-child .record-row { border-bottom: 1px solid var(--rule); }
+
+.record-topic {
+  font-size: clamp(1.5rem, 3.5vw, 2rem);
+  max-width: 30ch;
+  transition: color 120ms ease;
+}
+
+.record-row:hover .record-topic { color: var(--text-muted); }
+
+.record-sides { font-size: 0.9375rem; color: var(--text-muted); }
+
+.record-name { color: var(--position-text, var(--text)); font-weight: 600; }
+
+.record-outcome { font-size: 0.9375rem; }
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.25rem;
+  color: var(--text-muted);
+}
+
+.saved-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+/* --------------------------------------------------------------------------
+   Personas — the saved sheets, each with what was written to build it.
+   -------------------------------------------------------------------------- */
+
+.persona-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.persona-entry .sheet { margin-bottom: 0; }
+
+.persona-source {
+  border-left: 2px solid var(--rule);
+  padding-left: 0.85rem;
+  max-width: 62ch;
+}
+
+.persona-description {
+  margin-top: 0.25rem;
+  font-size: 0.9375rem;
+  white-space: pre-line;
+}
+
+.persona-compile { align-self: flex-start; }

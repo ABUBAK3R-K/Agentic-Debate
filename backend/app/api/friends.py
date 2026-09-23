@@ -15,8 +15,9 @@ from app.schemas import (
     PersonaCompileResponse,
     PersonaProfile,
     PersonaUpdateRequest,
+    SavedPersona,
 )
-from app.services import friend_service
+from app.services import friend_service, history_service
 from app.services.persona_compiler import compile_persona
 
 router = APIRouter(prefix="/api/friends", tags=["friends"])
@@ -31,6 +32,12 @@ async def create_friend(data: FriendCreate, db: AsyncSession = Depends(get_db)):
 @router.get("", response_model=list[FriendResponse])
 async def list_friends(db: AsyncSession = Depends(get_db)):
     return await friend_service.get_friends(db)
+
+
+@persona_router.get("", response_model=list[SavedPersona])
+async def list_personas(db: AsyncSession = Depends(get_db)):
+    """Every friend with the latest version of their persona."""
+    return await history_service.list_personas(db)
 
 
 @persona_router.post("/compile", response_model=PersonaCompileResponse)

@@ -18,7 +18,7 @@ from uuid import UUID
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.llm.errors import redact
+from app.llm.errors import public_message
 from app.llm.factory import get_llm_provider
 from app.models import Debate
 from app.schemas import SSEDebateEvent
@@ -61,6 +61,9 @@ class DebateBroadcast:
                 continue
             await self._updated.wait()
 
+
+# How long a finished debate's events stay replayable, in seconds.
+BROADCAST_TTL = 600.0
 
 _broadcasts: dict[UUID, DebateBroadcast] = {}
 _tasks: dict[UUID, asyncio.Task] = {}
@@ -107,6 +110,23 @@ async def _run(debate_id: UUID, broadcast: DebateBroadcast) -> None:
                 broadcast.publish(event)
     except Exception as exc:
         logger.error("Debate %s crashed: %s", debate_id, exc, exc_info=True)
-        broadcast.publish(SSEDebateEvent(event_type="error", content=redact(str(exc))))
+        broadcast.publish(SSEDebateEvent(event_type="error", content=public_message(exc)))
     finally:
         broadcast.finish()
+        _schedule_eviction(debate_id)
+
+
+def _schedule_eviction(debate_id: UUID) -> None:
+    """Drop a finished debate's buffer once late subscribers have had time.
+
+    Without this every debate's full event log stays in memory for the life
+    of the process. The verdict is persisted, so nothing is lost: after
+    eviction the stream answers 409 and the result endpoint still works.
+    """
+    def evict() -> None:
+        _broadcasts.pop(debate_id, None)
+
+    try:
+        asyncio.get_running_loop().call_later(BROADCAST_TTL, evict)
+    except RuntimeError:
+        evict()

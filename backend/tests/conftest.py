@@ -8,6 +8,11 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("LLM_API_KEY", "test-key")
+# The repo's .env is read too, and tuning written there for a real provider
+# must not change what the suite expects a request body to contain or how
+# long the pacer holds a test. Environment variables win over .env.
+os.environ.setdefault("GEMINI_THINKING_LEVEL", "")
+os.environ.setdefault("LLM_REQUESTS_PER_MINUTE", "0")
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

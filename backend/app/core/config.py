@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     # LLM provider configuration
     LLM_PROVIDER: str = "gemini"  # Changeable: openai, gemini, etc.
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "gemini-1.5-pro"
+    # gemini-1.5-pro is retired (404), and the 2.5 models are closed to new
+    # keys. 3.5-flash-lite is current and does not think by default.
+    LLM_MODEL: str = "gemini-3.5-flash-lite"
     LLM_BASE_URL: str = ""
 
     # How hard a reasoning model may think before it answers ("low", "medium",
@@ -34,13 +36,20 @@ class Settings(BaseSettings):
     LLM_REASONING_EFFORT: str = ""
 
     # Gemini's equivalent, spelled as a token budget rather than a level. Only
-    # sent when set, because the two model generations disagree about it:
-    # 2.5 takes `thinkingBudget` (0 disables thinking, which on 2.5-flash is
-    # a third of what a turn costs), while 3.x rejects the field outright and
-    # does not think by default anyway. Leave it unset on a 3.x model —
-    # measured there, asking for thinking only turns it back on and doubles
-    # the bill.
+    # sent when set, because the model generations disagree about it: 2.5
+    # takes `thinkingBudget`, and 3.5-flash-lite answers `thinkingBudget: 0`
+    # with a 400. Prefer GEMINI_THINKING_LEVEL on any 3.x model. When both are
+    # set, the budget wins and the level is not sent.
     GEMINI_THINKING_BUDGET: int | None = None
+
+    # The 3.x spelling: "minimal", "low", "medium" or "high". Measured,
+    # 3.5-flash and 3.6-flash DO think by default, and the thinking is billed
+    # against maxOutputTokens — a 500-token turn can spend its whole budget
+    # thinking and come back with no text at all (finishReason MAX_TOKENS),
+    # which is how a debate turn fails intermittently. "minimal" switches
+    # that off and is accepted by both the flash and flash-lite 3.x models.
+    # Empty means the field is not sent.
+    GEMINI_THINKING_LEVEL: str = ""
 
     # Debate generation settings.
     # Every participant in a debate uses these identical values — the only

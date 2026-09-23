@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Aisle } from '../components/Aisle';
 import { SimulationNotice } from '../components/SimulationNotice';
+import { TranscriptSide } from '../components/TranscriptSide';
 import { useDebateStream } from '../hooks/useDebateStream';
 
 const PHASE_NAMES = {
@@ -12,13 +13,6 @@ const PHASE_NAMES = {
   CLOSING: 'Closing statements',
   JUDGING: 'The judge is reading the transcript',
   COMPLETED: 'Verdict',
-};
-
-const TURN_NAMES = {
-  OPENING: 'Opening',
-  REBUTTAL: 'Rebuttal',
-  COUNTER: 'Counter',
-  CLOSING: 'Closing',
 };
 
 /**
@@ -63,8 +57,8 @@ export function LiveDebate() {
 
       <Aisle
         className="transcript"
-        left={<Side side={left} turns={debate.turns} />}
-        right={<Side side={right} turns={debate.turns} />}
+        left={<TranscriptSide side={left} turns={debate.turns} />}
+        right={<TranscriptSide side={right} turns={debate.turns} />}
       />
 
       <footer className="debate-footer">
@@ -75,43 +69,5 @@ export function LiveDebate() {
         </SimulationNotice>
       </footer>
     </main>
-  );
-}
-
-function Side({ side, turns }) {
-  if (!side) {
-    return <p className="meta">Waiting for the arena to assign sides.</p>;
-  }
-
-  const mine = turns.filter((turn) => turn.participantId === side.participantId);
-
-  return (
-    <div data-position={side.position} className="side">
-      <header className="side-head">
-        <h2 className="side-name display">{side.name}</h2>
-        <p className="side-position">
-          {side.position === 'FOR' ? 'Arguing for' : 'Arguing against'}
-        </p>
-      </header>
-
-      {mine.length === 0 && <p className="meta">Yet to speak.</p>}
-
-      {mine.map((turn) => (
-        <article key={turn.id} className="turn">
-          <p className="turn-phase">{TURN_NAMES[turn.phase] || turn.phase}</p>
-          {turn.failed ? (
-            <p className="turn-failed">
-              This turn could not be generated, so it is left empty rather than
-              filled with something the model did not actually say.
-            </p>
-          ) : (
-            <p className="argument">
-              {turn.text}
-              {turn.streaming && <span className="caret" />}
-            </p>
-          )}
-        </article>
-      ))}
-    </div>
   );
 }

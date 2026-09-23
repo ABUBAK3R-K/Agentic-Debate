@@ -30,7 +30,7 @@ class GeminiProvider(LLMProvider):
 
     def __init__(self, model: str | None = None) -> None:
         self.api_key = settings.LLM_API_KEY
-        self.model = model or settings.LLM_MODEL or "gemini-1.5-pro"
+        self.model = model or settings.LLM_MODEL or "gemini-3.5-flash-lite"
         # LLM_BASE_URL lets this point at a proxy or a local stand-in; the
         # public endpoint is the default.
         self.base_url = (settings.LLM_BASE_URL or DEFAULT_GEMINI_BASE).rstrip("/")
@@ -99,13 +99,17 @@ class GeminiProvider(LLMProvider):
             body["systemInstruction"] = system_instruction
         if response_mime_type:
             body["generationConfig"]["responseMimeType"] = response_mime_type
-        # Thinking is billed as output, so on a model that does it by default
-        # it is a large share of what a debate costs — a third of every turn
-        # on gemini-2.5-flash. Sent only when configured, because a 3.x model
-        # rejects the field and needs nothing: it already does not think.
+        # Thinking is billed against maxOutputTokens, so on a model that does
+        # it by default a turn can spend its whole budget thinking and return
+        # no text. Sent only when configured, because the generations take
+        # different fields and reject the one they don't know.
         if settings.GEMINI_THINKING_BUDGET is not None:
             body["generationConfig"]["thinkingConfig"] = {
                 "thinkingBudget": settings.GEMINI_THINKING_BUDGET
+            }
+        elif settings.GEMINI_THINKING_LEVEL:
+            body["generationConfig"]["thinkingConfig"] = {
+                "thinkingLevel": settings.GEMINI_THINKING_LEVEL
             }
         return body
 
@@ -120,9 +124,16 @@ class GeminiProvider(LLMProvider):
         parts = (candidates[0].get("content") or {}).get("parts") or []
         text = "".join(part.get("text", "") for part in parts)
         if not text:
+            reason = candidates[0].get("finishReason")
+            thoughts = (payload.get("usageMetadata") or {}).get("thoughtsTokenCount")
+            hint = (
+                " — the model spent its output budget thinking; set "
+                "GEMINI_THINKING_LEVEL=minimal"
+                if reason == "MAX_TOKENS" and thoughts
+                else ""
+            )
             raise ValueError(
-                f"Gemini returned an empty candidate "
-                f"(finishReason={candidates[0].get('finishReason')})"
+                f"Gemini returned an empty candidate (finishReason={reason}){hint}"
             )
         return text
 

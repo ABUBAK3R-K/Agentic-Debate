@@ -20,7 +20,7 @@ from app.llm.prompts import (
     build_turn_prompt,
     format_transcript,
 )
-from app.llm.errors import LLMTransportError, redact
+from app.llm.errors import LLMTransportError, public_message, redact
 from app.llm.structured import (
     JsonStringFieldExtractor,
     StructuredOutputError,
@@ -423,4 +423,4 @@ class DebateEngine:
             logger.error("Debate %s failed: %s", debate.id, exc, exc_info=True)
             debate.status = "FAILED"
             await self.db.commit()
-            yield SSEDebateEvent(event_type="error", content=redact(str(exc)))
+            yield SSEDebateEvent(event_type="error", content=public_message(exc))

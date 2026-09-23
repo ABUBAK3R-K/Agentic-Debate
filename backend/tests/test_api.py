@@ -71,9 +71,12 @@ class TestEndpointSurface:
         assert routes == {
             ("POST", "/api/friends"),
             ("GET", "/api/friends"),
+            ("GET", "/api/personas"),
             ("POST", "/api/personas/compile"),
             ("PUT", "/api/personas/{friend_id}"),
+            ("GET", "/api/debates"),
             ("POST", "/api/debates"),
+            ("GET", "/api/debates/{debate_id}"),
             ("POST", "/api/debates/{debate_id}/start"),
             ("GET", "/api/debates/{debate_id}/stream"),
             ("GET", "/api/debates/{debate_id}/result"),

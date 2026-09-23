@@ -27,9 +27,10 @@ out of scope now, not a feature to finish.
 
 MVP is exactly: two friends → persona compiler (with user review/edit) → one
 debate with four fixed rounds → live SSE streaming → independent blind judge →
-persistence of the above.
+persistence of the above → past debates and saved personas, viewable
+(added at the user's request, 2026-09-23).
 
-Deferred to v2 (see "Later" in `PRD.md`): debate history/replay, persona-
+Deferred to v2 (see "Later" in `PRD.md`): live replay of a finished debate, persona-
 consistency evaluator + dashboard, 3-participant debates, topic categories,
 configurable rounds/temperature in the UI, observability logging, prompt
 versioning, research/experiment mode, authentication.
@@ -44,15 +45,17 @@ codebase yet. Confirm with the user before building anything from "Later".
 backend/app/
   api/         FastAPI routers — thin. No business logic here.
   services/    DebateEngine, JudgeEngine, debate_runner, persona_compiler,
-               friend_service.
+               friend_service, history_service (past debates, personas).
   llm/         LLMProvider ABC, providers, prompts.py, structured.py.
   models/      SQLAlchemy ORM.
   schemas/     Pydantic request/response + structured LLM output.
   core/        config (env settings), database (async engine/session).
 backend/tests/ pytest suite; fakes.py holds the scripted FakeLLM.
 frontend/src/
-  pages/       Setup, LiveDebate, Verdict. Exactly three.
-  components/  SiteHeader, Aisle, PersonaSheet, SimulationNotice.
+  pages/       Landing, Setup, LiveDebate, Verdict, PastDebates,
+               SavedDebate, Personas.
+  components/  SiteHeader, Aisle, PersonaSheet, SimulationNotice,
+               TranscriptSide (one transcript column, live or saved).
   services/    Axios API client.
   hooks/       useDebateStream — the SSE reducer.
   index.css    Design tokens and primitives.
@@ -174,7 +177,7 @@ divider), visible keyboard focus on every interactive element, respect
 ```bash
 # Backend (from backend/) — deps live in backend/.venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe -m pytest             # 166 tests, no network, no DB
+.venv/Scripts/python.exe -m pytest             # 185 tests, no network, no DB
 .venv/Scripts/python.exe init_db.py            # create tables
 .venv/Scripts/python.exe -m uvicorn app.main:app --reload
 

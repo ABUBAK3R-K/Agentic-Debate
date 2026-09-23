@@ -143,3 +143,16 @@ class LLMRateLimited(LLMTransportError):
                 f"The model provider is rate limiting this API key: "
                 f"{self.detail}"
             )
+
+
+def public_message(error: Exception) -> str:
+    """What a person may be told about an unexpected failure.
+
+    A provider failure carries a message written for them. Anything else — a
+    database error, a bug — can hold connection strings, file paths or SQL,
+    none of which belongs in a browser, so it gets a generic line and the
+    detail stays in the server log.
+    """
+    if isinstance(error, LLMError):
+        return error.user_message
+    return "The debate stopped because of an internal error. Check the server log."

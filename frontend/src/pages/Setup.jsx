@@ -124,6 +124,7 @@ export function Setup() {
             className="field"
             value={topic}
             placeholder="What should they argue about?"
+            maxLength={300}
             onChange={(event) => setTopic(event.target.value)}
             aria-label="Debate topic"
           />
@@ -191,6 +192,7 @@ function Corner({ index, corner, onChange, onCompile }) {
             className="field"
             value={corner.name}
             placeholder="Rahul"
+            maxLength={100}
             onChange={(event) => onChange({ name: event.target.value })}
           />
 
@@ -202,6 +204,7 @@ function Corner({ index, corner, onChange, onCompile }) {
             className="field"
             value={corner.description}
             placeholder="Skeptical, wants numbers before he'll agree to anything, dry sense of humour, never concedes a point he hasn't tested."
+            maxLength={2000}
             onChange={(event) => onChange({ description: event.target.value })}
           />
 

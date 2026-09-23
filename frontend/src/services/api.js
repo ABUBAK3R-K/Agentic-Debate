@@ -43,6 +43,12 @@ export const debateStreamUrl = (debateId) =>
 export const getResult = (debateId) =>
   api.get(`/api/debates/${debateId}/result`);
 
+export const listDebates = () => api.get('/api/debates');
+
+export const getDebate = (debateId) => api.get(`/api/debates/${debateId}`);
+
+export const listPersonas = () => api.get('/api/personas');
+
 /** Turn an axios failure into something worth showing a person. */
 export function readError(error, fallback = 'Something went wrong.') {
   const detail = error?.response?.data?.detail;
