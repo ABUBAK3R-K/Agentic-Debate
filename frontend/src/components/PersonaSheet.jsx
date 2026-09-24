@@ -7,9 +7,15 @@ import { useEffect, useRef, useState } from 'react';
  * FOR and AGAINST are handed out when the debate starts, so introducing amber
  * or indigo before that would attach a colour to a person, which is exactly
  * what the colour system is built to avoid.
+ *
+ * `readOnly` shows the same sheet as plain text: a public figure is shared by
+ * every visitor, so it is read here and only edited as your own copy on the
+ * setup screen.
  */
 
-function EditableValue({ value, onChange, label, display = false, multiline = false }) {
+function EditableValue({
+  value, onChange, label, display = false, multiline = false, readOnly = false,
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef(null);
@@ -33,6 +39,12 @@ function EditableValue({ value, onChange, label, display = false, multiline = fa
       setDraft(value);
       setEditing(false);
     }
+  }
+
+  if (readOnly) {
+    return value
+      ? <span>{value}</span>
+      : <span style={{ color: 'var(--text-muted)' }}>Not set</span>;
   }
 
   if (editing) {
@@ -74,7 +86,7 @@ function EditableValue({ value, onChange, label, display = false, multiline = fa
 }
 
 /** Traits read as a row of tags, and edit as one comma-separated line. */
-function EditableTags({ values, onChange, label }) {
+function EditableTags({ values, onChange, label, readOnly = false }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef(null);
@@ -91,6 +103,14 @@ function EditableTags({ values, onChange, label }) {
   function commit() {
     setEditing(false);
     onChange(split(draft));
+  }
+
+  if (readOnly) {
+    return (
+      <div className="tags tags-static">
+        {(values || []).map((trait) => <span className="tag" key={trait}>{trait}</span>)}
+      </div>
+    );
   }
 
   if (editing) {
@@ -122,6 +142,17 @@ function EditableTags({ values, onChange, label }) {
 }
 
 
+/** One labelled value inside a row. The label travels with its value, so a
+ * wrapped line never leaves "Risk" stranded at the end with "Low" below it. */
+function Pair({ label, children }) {
+  return (
+    <span className="sheet-pair">
+      {label && <span className="sheet-sep">{label}</span>}
+      {children}
+    </span>
+  );
+}
+
 function Row({ label, children }) {
   return (
     <div className="sheet-row">
@@ -135,7 +166,7 @@ const join = (list) => (list || []).join(', ');
 const split = (text) =>
   text.split(',').map((part) => part.trim()).filter(Boolean);
 
-export function PersonaSheet({ persona, onChange }) {
+export function PersonaSheet({ persona, onChange, readOnly = false }) {
   const set = (path, value) => {
     const next = structuredClone(persona);
     let target = next;
@@ -153,6 +184,7 @@ export function PersonaSheet({ persona, onChange }) {
       <h2 className="sheet-name">
         <EditableValue
           display
+          readOnly={readOnly}
           label="name"
           value={persona.name}
           onChange={(v) => set(['name'], v)}
@@ -160,6 +192,7 @@ export function PersonaSheet({ persona, onChange }) {
       </h2>
 
       <EditableTags
+        readOnly={readOnly}
         label="core traits"
         values={persona.core_traits}
         onChange={(v) => set(['core_traits'], v)}
@@ -168,6 +201,7 @@ export function PersonaSheet({ persona, onChange }) {
       <dl className="sheet-rows">
         <Row label="Values">
           <EditableValue
+            readOnly={readOnly}
             label="values"
             value={join(persona.values)}
             onChange={(v) => set(['values'], split(v))}
@@ -175,61 +209,81 @@ export function PersonaSheet({ persona, onChange }) {
         </Row>
 
         <Row label="Reasoning">
-          <EditableValue
-            label="decision making"
-            value={reasoning.decision_making}
-            onChange={(v) => set(['reasoning_style', 'decision_making'], v)}
-          />
-          <span className="sheet-sep">Risk</span>
-          <EditableValue
-            label="risk tolerance"
-            value={reasoning.risk_tolerance}
-            onChange={(v) => set(['reasoning_style', 'risk_tolerance'], v)}
-          />
-          <span className="sheet-sep">Evidence</span>
-          <EditableValue
-            label="evidence preference"
-            value={reasoning.evidence_preference}
-            onChange={(v) => set(['reasoning_style', 'evidence_preference'], v)}
-          />
+          <Pair>
+            <EditableValue
+              readOnly={readOnly}
+              label="decision making"
+              value={reasoning.decision_making}
+              onChange={(v) => set(['reasoning_style', 'decision_making'], v)}
+            />
+          </Pair>
+          <Pair label="Risk">
+            <EditableValue
+              readOnly={readOnly}
+              label="risk tolerance"
+              value={reasoning.risk_tolerance}
+              onChange={(v) => set(['reasoning_style', 'risk_tolerance'], v)}
+            />
+          </Pair>
+          <Pair label="Evidence">
+            <EditableValue
+              readOnly={readOnly}
+              label="evidence preference"
+              value={reasoning.evidence_preference}
+              onChange={(v) => set(['reasoning_style', 'evidence_preference'], v)}
+            />
+          </Pair>
         </Row>
 
         <Row label="Voice">
-          <EditableValue
-            label="tone"
-            value={voice.tone}
-            onChange={(v) => set(['communication_style', 'tone'], v)}
-          />
-          <span className="sheet-sep">Directness</span>
-          <EditableValue
-            label="directness"
-            value={voice.directness}
-            onChange={(v) => set(['communication_style', 'directness'], v)}
-          />
-          <span className="sheet-sep">Humour</span>
-          <EditableValue
-            label="humour"
-            value={voice.humor}
-            onChange={(v) => set(['communication_style', 'humor'], v)}
-          />
+          <Pair>
+            <EditableValue
+              readOnly={readOnly}
+              label="tone"
+              value={voice.tone}
+              onChange={(v) => set(['communication_style', 'tone'], v)}
+            />
+          </Pair>
+          <Pair label="Directness">
+            <EditableValue
+              readOnly={readOnly}
+              label="directness"
+              value={voice.directness}
+              onChange={(v) => set(['communication_style', 'directness'], v)}
+            />
+          </Pair>
+          <Pair label="Humour">
+            <EditableValue
+              readOnly={readOnly}
+              label="humour"
+              value={voice.humor}
+              onChange={(v) => set(['communication_style', 'humor'], v)}
+            />
+          </Pair>
         </Row>
 
         <Row label="In a debate">
-          <EditableValue
-            label="aggressiveness"
-            value={debate.aggressiveness}
-            onChange={(v) => set(['debate_style', 'aggressiveness'], v)}
-          />
-          <span className="sheet-sep">Tactics</span>
-          <EditableValue
-            label="preferred tactics"
-            value={join(debate.preferred_tactics)}
-            onChange={(v) => set(['debate_style', 'preferred_tactics'], split(v))}
-          />
+          <Pair>
+            <EditableValue
+              readOnly={readOnly}
+              label="aggressiveness"
+              value={debate.aggressiveness}
+              onChange={(v) => set(['debate_style', 'aggressiveness'], v)}
+            />
+          </Pair>
+          <Pair label="Tactics">
+            <EditableValue
+              readOnly={readOnly}
+              label="preferred tactics"
+              value={join(debate.preferred_tactics)}
+              onChange={(v) => set(['debate_style', 'preferred_tactics'], split(v))}
+            />
+          </Pair>
         </Row>
 
         <Row label="Strengths">
           <EditableValue
+            readOnly={readOnly}
             label="strengths"
             value={join(persona.strengths)}
             onChange={(v) => set(['strengths'], split(v))}
@@ -238,6 +292,7 @@ export function PersonaSheet({ persona, onChange }) {
 
         <Row label="Blind spots">
           <EditableValue
+            readOnly={readOnly}
             label="weaknesses"
             value={join(persona.weaknesses)}
             onChange={(v) => set(['weaknesses'], split(v))}

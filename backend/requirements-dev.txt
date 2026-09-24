@@ -1,0 +1,7 @@
+# Everything for tests and audits, on top of the runtime set.
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pip-audit==2.10.1
+# Only for rendering migrations as SQL (`alembic upgrade head --sql`).
+psycopg2-binary==2.9.13

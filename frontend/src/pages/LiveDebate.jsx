@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Aisle } from '../components/Aisle';
 import { SimulationNotice } from '../components/SimulationNotice';
+import { Thinking } from '../components/Thinking';
 import { TranscriptSide } from '../components/TranscriptSide';
 import { useDebateStream } from '../hooks/useDebateStream';
 
@@ -61,11 +62,21 @@ export function LiveDebate() {
         right={<TranscriptSide side={right} turns={debate.turns} />}
       />
 
+      {/* Under the last closing statement, where the reader already is. */}
+      {debate.phase === 'JUDGING' && debate.status === 'live' && (
+        <Thinking
+          className="judging"
+          variant="orbit"
+          label="The judge is weighing both sides"
+        />
+      )}
+
       <footer className="debate-footer">
         <SimulationNotice>
-          A simulation of the personas you described, not the people themselves.
-          Both sides run on the same model with the same settings — only the
-          persona and the assigned side differ.
+          A simulation of the personas, not the people themselves — a public
+          figure here is played from their public image and never speaks for
+          them. Both sides run on the same model with the same settings; only
+          the persona and the assigned side differ.
         </SimulationNotice>
       </footer>
     </main>

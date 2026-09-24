@@ -1,3 +1,5 @@
+import { Thinking } from './Thinking';
+
 const TURN_NAMES = {
   OPENING: 'Opening',
   REBUTTAL: 'Rebuttal',
@@ -43,6 +45,9 @@ export function TranscriptSide({ side, turns, past = false }) {
               This turn could not be generated, so it is left empty rather than
               filled with something the model did not actually say.
             </p>
+          ) : turn.streaming && !turn.text ? (
+            // The turn has opened but no words have arrived yet.
+            <Thinking />
           ) : (
             <p className="argument">
               {turn.text}

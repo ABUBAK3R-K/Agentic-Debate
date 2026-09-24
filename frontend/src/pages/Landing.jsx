@@ -76,7 +76,8 @@ export function Landing() {
           <div className="hero-actions">
             <Link className="button" to="/new">Build the card</Link>
             <span className="meta hero-note">
-              Takes two descriptions and a motion.
+              Takes two descriptions and a motion, or pick from actors,
+              cricketers and footballers.
             </span>
           </div>
         </div>
@@ -137,9 +138,9 @@ export function Landing() {
         <h2 className="closing-title">Two friends. One motion.</h2>
         <Link className="button" to="/new">Build the card</Link>
         <SimulationNotice>
-          Everything here is a fictional simulation built only from the
-          descriptions you write. It never speaks for the real person — at most
-          it suggests how the persona you described might argue.
+          Everything here is a fictional simulation, built from the descriptions
+          you write or from a public figure's public image. It never speaks for
+          the real person — at most it suggests how that persona might argue.
         </SimulationNotice>
       </section>
     </main>

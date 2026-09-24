@@ -1,0 +1,18 @@
+# Secrets never enter the build context, let alone an image layer.
+**/.env
+**/.env.*
+
+# Local state and build output — the image builds its own.
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/*.db
+**/*.log
+
+# Not needed to run the app.
+.git
+.claude
+backend/tests
+*.md

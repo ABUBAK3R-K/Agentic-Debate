@@ -60,6 +60,8 @@ class FriendResponse(BaseModel):
     id: UUID
     name: str
     raw_description: str
+    is_public: bool = False
+    category: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -171,10 +173,17 @@ class DebateTranscriptResponse(DebateSummary):
 
 
 class SavedPersona(BaseModel):
-    """A friend and the latest version of their persona, if compiled."""
+    """A friend and the latest version of their persona, if compiled.
+
+    `is_public` marks a seeded public figure: every visitor sees it, nobody
+    can edit it in place, and `raw_description` is a summary of the public
+    image it was built from rather than something the visitor wrote.
+    """
     friend_id: UUID
     name: str
     raw_description: str
+    is_public: bool = False
+    category: Optional[str] = None
     created_at: datetime
     persona: Optional[PersonaProfile] = None
     version: Optional[int] = None

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.database import Base, get_db
 from app.llm.factory import get_llm_provider
 from app.main import app
+from app.core.security import limiter
 from app.services import debate_runner
 from tests.fakes import FakeLLM, debate_script
 
@@ -39,10 +40,12 @@ async def client(monkeypatch):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         ac.llm = llm
+        ac.session_factory = session_factory
         yield ac
 
     app.dependency_overrides.clear()
     debate_runner._broadcasts.clear()
+    limiter.reset()
     await engine.dispose()
 
 

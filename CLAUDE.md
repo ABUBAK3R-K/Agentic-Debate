@@ -28,12 +28,15 @@ out of scope now, not a feature to finish.
 MVP is exactly: two friends → persona compiler (with user review/edit) → one
 debate with four fixed rounds → live SSE streaming → independent blind judge →
 persistence of the above → past debates and saved personas, viewable
-(added at the user's request, 2026-09-23).
+(added at the user's request, 2026-09-23) → per-browser privacy, seeded
+public-figure personas, and a production deployment path (added at the
+user's request, 2026-09-24).
 
 Deferred to v2 (see "Later" in `PRD.md`): live replay of a finished debate, persona-
 consistency evaluator + dashboard, 3-participant debates, topic categories,
 configurable rounds/temperature in the UI, observability logging, prompt
-versioning, research/experiment mode, authentication.
+versioning, research/experiment mode, accounts/sign-in (privacy is per
+browser via an anonymous cookie, not per account).
 
 **Do not scaffold pages, routes, disabled UI, or placeholder endpoints for
 anything deferred.** If it isn't in the MVP list, it doesn't exist in this
@@ -45,17 +48,24 @@ codebase yet. Confirm with the user before building anything from "Later".
 backend/app/
   api/         FastAPI routers — thin. No business logic here.
   services/    DebateEngine, JudgeEngine, debate_runner, persona_compiler,
-               friend_service, history_service (past debates, personas).
+               friend_service, history_service (past debates, personas),
+               public_figures (seeds data/public_figures.json at startup).
   llm/         LLMProvider ABC, providers, prompts.py, structured.py.
   models/      SQLAlchemy ORM.
   schemas/     Pydantic request/response + structured LLM output.
-  core/        config (env settings), database (async engine/session).
+  core/        config (env settings), database (async engine/session),
+               identity (visitor cookie → owner_key), security (headers,
+               per-IP rate limits), frontend (serves the built SPA).
+  data/        public_figures.json — curated public-figure personas.
+backend/alembic/ migrations. Schema changes need a new revision.
 backend/tests/ pytest suite; fakes.py holds the scripted FakeLLM.
+Dockerfile, docker-compose.yml at the repo root: one image, API + SPA.
 frontend/src/
   pages/       Landing, Setup, LiveDebate, Verdict, PastDebates,
                SavedDebate, Personas.
   components/  SiteHeader, Aisle, PersonaSheet, SimulationNotice,
-               TranscriptSide (one transcript column, live or saved).
+               TranscriptSide (one transcript column, live or saved),
+               Thinking (the waiting-on-the-model indicator).
   services/    Axios API client.
   hooks/       useDebateStream — the SSE reducer.
   index.css    Design tokens and primitives.
@@ -128,6 +138,22 @@ gets validated structured output.
   randomized per debate; the backend maps results back to friend IDs after.
 - **Safety copy is visible.** Persona creation and debate screens must say this
   is a fictional simulation of what the user wrote — never "X actually thinks".
+- **Everything a visitor creates is theirs alone.** `OwnerCookieMiddleware`
+  gives each browser an anonymous HttpOnly cookie; friends and debates carry
+  `owner_key` (a SHA-256 of it). Every query goes through the owner-scoped
+  helpers in `friend_service` / `history_service` — never `db.get` on a
+  user-supplied id in a route. Another visitor's row answers 404, identical
+  to a missing one. Access fails closed: no owner means visible to nobody.
+- **Public figures are shared and read-only.** `is_public` rows are visible
+  to all and editable by none; an edit on the setup screen saves the
+  visitor's own copy. Write them from public image only — interviews, on
+  screen, on the field. No private life, health, politics or controversies,
+  no tactics that invite invented biography, and no name or nickname in
+  `core_traits` (the blind judge sees those). A test enforces the last one.
+- **Model-spending routes are rate-limited** per IP (`rate_limited(...)`),
+  and `MAX_CONCURRENT_DEBATES` caps running debates. A new route that calls
+  the LLM needs a limit too.
+- **One process, one worker.** Debate broadcasts live in memory.
 - Run and fix tests after each step before starting the next.
 
 ## Debate state machine
@@ -149,7 +175,16 @@ Positions (FOR / AGAINST) are assigned by the backend, never chosen by agents.
   verdict) and IBM Plex Sans (everything else). No third face, no monospace.
 - The center aisle is a real vertical rule on every debate screen; each side's
   transcript grows in its own column. Not a merged chat thread.
-- Motion budget is spent entirely on the debate → verdict transition.
+- Motion budget is spent on the debate → verdict transition, plus one
+  exception added at the user's request (2026-09-24): `Thinking`, the pixel
+  grid + shimmering label + elapsed timer shown only while waiting on the
+  model (a debater before their first token, the judge, persona compiling).
+  Its ink follows `[data-position]`; its timer is Plex Sans tabular figures,
+  not monospace. Nothing else animates.
+- The header is one row at every width: name, links, and "New debate" as the
+  only button. At ≤640px the links fold behind a menu toggle (an overlay,
+  Escape/outside-tap/navigation close it); at ≤359px the button moves into
+  the menu too.
 - Argument text under ~70 characters per line.
 
 ### Anti-patterns — check every screen against this before calling it done
@@ -176,10 +211,15 @@ divider), visible keyboard focus on every interactive element, respect
 
 ```bash
 # Backend (from backend/) — deps live in backend/.venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe -m pytest             # 185 tests, no network, no DB
-.venv/Scripts/python.exe init_db.py            # create tables
+.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+.venv/Scripts/python.exe -m pytest             # 236 tests, no network, no DB
+.venv/Scripts/python.exe -m alembic upgrade head   # create/upgrade tables
 .venv/Scripts/python.exe -m uvicorn app.main:app --reload
+.venv/Scripts/python.exe -m pip_audit -r requirements.txt   # needs network
+
+# Deploy (repo root)
+docker build -t persona-arena .
+docker compose up --build          # app + Postgres, needs POSTGRES_PASSWORD
 
 # Frontend (from frontend/)
 npm install

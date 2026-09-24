@@ -3,6 +3,9 @@
 Everything shown here was already persisted while the debate ran — this module
 only queries it. Each list is built from a fixed number of queries rather than
 one per row, so it stays quick as history grows.
+
+Every query is scoped to the visitor asking: their own debates, their own
+personas, and the public figures everyone shares.
 """
 
 from collections import defaultdict
@@ -27,6 +30,8 @@ from app.schemas import (
     PersonaProfile,
     SavedPersona,
 )
+from app.services.friend_service import visible_to
+from app.services.public_figures import category_rank
 
 
 async def _participants_by_debate(
@@ -82,10 +87,32 @@ def _summary(
     )
 
 
-async def list_debates(db: AsyncSession) -> list[DebateSummary]:
-    """Every debate, newest first, with who argued and who won."""
+# The past-debates page lists at most this many, newest first.
+DEBATE_LIST_LIMIT = 200
+
+
+async def get_owned_debate(
+    debate_id: UUID, owner_key: str, db: AsyncSession
+) -> Debate | None:
+    """A debate this visitor set up, or None — whether it is missing or
+    someone else's, the answer is the same, so ids reveal nothing."""
+    debate = await db.get(Debate, debate_id)
+    if debate is None or debate.owner_key != owner_key:
+        return None
+    return debate
+
+
+async def list_debates(owner_key: str, db: AsyncSession) -> list[DebateSummary]:
+    """The visitor's debates, newest first, with who argued and who won."""
     debates = list(
-        (await db.execute(select(Debate).order_by(Debate.created_at.desc())))
+        (
+            await db.execute(
+                select(Debate)
+                .where(Debate.owner_key == owner_key)
+                .order_by(Debate.created_at.desc())
+                .limit(DEBATE_LIST_LIMIT)
+            )
+        )
         .scalars()
         .all()
     )
@@ -100,10 +127,10 @@ async def list_debates(db: AsyncSession) -> list[DebateSummary]:
 
 
 async def get_transcript(
-    debate_id: UUID, db: AsyncSession
+    debate_id: UUID, owner_key: str, db: AsyncSession
 ) -> DebateTranscriptResponse | None:
     """A saved debate, turn by turn, in the order it was argued."""
-    debate = await db.get(Debate, debate_id)
+    debate = await get_owned_debate(debate_id, owner_key, db)
     if debate is None:
         return None
 
@@ -135,17 +162,35 @@ async def get_transcript(
     )
 
 
-async def list_personas(db: AsyncSession) -> list[SavedPersona]:
-    """Every friend with the latest version of their persona, newest first."""
+async def list_personas(owner_key: str, db: AsyncSession) -> list[SavedPersona]:
+    """The visitor's friends, newest first, then the public figures.
+
+    Each comes with the latest version of its persona. Debate counts cover
+    only this visitor's debates — how often anyone else has picked a public
+    figure is not theirs to see.
+    """
     friends = list(
-        (await db.execute(select(Friend).order_by(Friend.created_at.desc())))
+        (
+            await db.execute(
+                select(Friend)
+                .where(visible_to(owner_key))
+                .order_by(Friend.created_at.desc())
+            )
+        )
         .scalars()
         .all()
     )
+    own = [f for f in friends if not f.is_public]
+    public = sorted(
+        (f for f in friends if f.is_public),
+        key=lambda f: (category_rank(f.category), f.name),
+    )
+    ids = [friend.id for friend in friends]
 
     # Latest version per friend: join each friend's max version back to its row.
     latest_version = (
         select(Persona.friend_id, func.max(Persona.version).label("version"))
+        .where(Persona.friend_id.in_(ids))
         .group_by(Persona.friend_id)
         .subquery()
     )
@@ -160,12 +205,14 @@ async def list_personas(db: AsyncSession) -> list[SavedPersona]:
                 )
             )
         ).scalars().all()
-    }
+    } if ids else {}
 
     debate_counts = dict(
         (
             await db.execute(
                 select(DebateParticipant.friend_id, func.count())
+                .join(Debate, Debate.id == DebateParticipant.debate_id)
+                .where(Debate.owner_key == owner_key)
                 .group_by(DebateParticipant.friend_id)
             )
         ).all()
@@ -176,6 +223,8 @@ async def list_personas(db: AsyncSession) -> list[SavedPersona]:
             friend_id=friend.id,
             name=friend.name,
             raw_description=friend.raw_description,
+            is_public=friend.is_public,
+            category=friend.category,
             created_at=friend.created_at,
             persona=(
                 PersonaProfile.model_validate(latest[friend.id].persona_json)
@@ -185,5 +234,5 @@ async def list_personas(db: AsyncSession) -> list[SavedPersona]:
             version=latest[friend.id].version if friend.id in latest else None,
             debate_count=debate_counts.get(friend.id, 0),
         )
-        for friend in friends
+        for friend in own + public
     ]

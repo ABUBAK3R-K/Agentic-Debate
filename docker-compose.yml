@@ -1,0 +1,43 @@
+# A production-shaped stack on one machine: the app image plus Postgres.
+#
+#   1. In .env, set LLM_* as usual and add POSTGRES_PASSWORD (letters and
+#      digits only — it goes into a URL).
+#   2. docker compose up --build
+#   3. Open http://localhost:8000
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arena
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: persona_arena
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arena -d persona_arena"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Overrides whatever DATABASE_URL .env holds for local development.
+      DATABASE_URL: postgresql+asyncpg://arena:${POSTGRES_PASSWORD}@db:5432/persona_arena
+      ENVIRONMENT: production
+      # This stack is served over plain HTTP on localhost. Behind HTTPS in a
+      # real deployment, delete this line so the cookie is Secure.
+      COOKIE_SECURE: "false"
+      # Nothing sits in front of this container to forward client addresses.
+      FORWARDED_ALLOW_IPS: "127.0.0.1"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

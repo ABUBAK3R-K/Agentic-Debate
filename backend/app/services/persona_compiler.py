@@ -22,16 +22,20 @@ logger = logging.getLogger(__name__)
 
 async def compile_persona(
     friend_id,
+    owner_key: str,
     db: AsyncSession,
     llm: LLMProvider,
 ) -> Persona:
     """Compile a friend's description into a stored persona version.
 
     raw description → LLM → Pydantic validation → stored persona
+
+    Only the friend's owner may compile it. A public figure has no owner, so
+    it is never recompiled — its persona is curated, not extracted.
     """
-    friend = await friend_service.get_friend(friend_id, db)
+    friend = await friend_service.get_owned_friend(friend_id, owner_key, db)
     if friend is None:
-        raise ValueError(f"Friend {friend_id} not found")
+        raise ValueError("Friend not found")
 
     logger.info("Compiling persona for %s (%s)", friend.id, friend.name)
     profile: PersonaProfile = await generate_structured_resilient(

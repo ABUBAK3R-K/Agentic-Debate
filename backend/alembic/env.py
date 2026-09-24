@@ -23,9 +23,11 @@ target_metadata = Base.metadata
 # Override sqlalchemy.url from our Settings if available
 from app.core.config import settings
 
-# Convert async URL to sync for offline mode
+# Convert async URL to sync for offline mode. The ini file is read through
+# configparser, which treats "%" as interpolation — and a URL-encoded password
+# is full of them — so every "%" is doubled before it goes in.
 sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
-config.set_main_option("sqlalchemy.url", sync_url)
+config.set_main_option("sqlalchemy.url", sync_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:
@@ -43,7 +45,13 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection):
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        # SQLite cannot ALTER most things in place; batch mode rebuilds the
+        # table instead, so the same migrations run locally and on Postgres.
+        render_as_batch=connection.dialect.name == "sqlite",
+    )
     with context.begin_transaction():
         context.run_migrations()
 

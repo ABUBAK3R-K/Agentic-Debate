@@ -13,6 +13,10 @@ export const API_BASE = import.meta.env.VITE_API_URL || '';
 const api = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
+  // Who you are is an HttpOnly cookie the API sets (there are no accounts);
+  // it is what keeps your personas and debates yours. Same-origin requests
+  // send it anyway — this covers a build pointed at another origin.
+  withCredentials: true,
   // Compiling a persona is a live model call, and the backend paces and
   // retries around a provider's rate limit before it gives up. Generous
   // enough not to cut a slow-but-working call short; finite so a dead socket

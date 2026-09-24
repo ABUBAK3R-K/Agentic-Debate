@@ -2,8 +2,8 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, Text, Integer, Float, DateTime,
-    ForeignKey, Enum as SAEnum, JSON
+    Boolean, Column, String, Text, Integer, Float, DateTime,
+    ForeignKey, JSON, false
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -20,6 +20,14 @@ class Friend(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
     raw_description = Column(Text, nullable=False)
+    # The visitor who created this friend (see app.core.identity). Only they
+    # can see or edit it. A row with no owner is visible to nobody, unless it
+    # is one of the seeded public figures below — access fails closed.
+    owner_key = Column(String(64), nullable=True, index=True)
+    # Seeded public figures: readable by every visitor, editable by none.
+    is_public = Column(Boolean, nullable=False, default=False, server_default=false())
+    # For public figures only: "Indian cinema", "Hollywood", "Cricket", ...
+    category = Column(String(40), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -55,6 +63,8 @@ class Debate(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     topic = Column(Text, nullable=False)
+    # Whoever set the debate up; nobody else can read, start or watch it.
+    owner_key = Column(String(64), nullable=True, index=True)
     model_provider = Column(String(50), nullable=False)
     model_name = Column(String(100), nullable=False)
     temperature = Column(Float, nullable=False, default=0.8)

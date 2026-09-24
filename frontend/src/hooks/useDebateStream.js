@@ -119,7 +119,8 @@ export function useDebateStream(debateId, enabled) {
   useEffect(() => {
     if (!debateId || !enabled) return undefined;
 
-    const source = new EventSource(debateStreamUrl(debateId));
+    // With credentials, so the visitor cookie proves this debate is ours.
+    const source = new EventSource(debateStreamUrl(debateId), { withCredentials: true });
     sourceRef.current = source;
 
     source.onmessage = (message) => {

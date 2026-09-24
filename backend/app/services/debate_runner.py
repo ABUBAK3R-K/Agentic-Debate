@@ -8,7 +8,8 @@ any number of subscribers can read from, each at its own pace.
 Buffering matters — a client that connects to the stream a moment after
 starting the debate still receives the opening events rather than joining
 mid-argument. The registry is in-process, which is right for the MVP's single
-worker; sharing it across workers would mean an external broker.
+worker; sharing it across workers would mean an external broker. Deploy it as
+exactly one process.
 """
 
 import asyncio
@@ -16,13 +17,16 @@ import logging
 from typing import AsyncGenerator
 from uuid import UUID
 
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.llm.errors import public_message
 from app.llm.factory import get_llm_provider
 from app.models import Debate
 from app.schemas import SSEDebateEvent
-from app.services.debate_engine import DebateEngine
+from app.services.debate_engine import VALID_TRANSITIONS, DebateEngine
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +77,26 @@ def get_broadcast(debate_id: UUID) -> DebateBroadcast | None:
     return _broadcasts.get(debate_id)
 
 
+class ArenaBusy(Exception):
+    """MAX_CONCURRENT_DEBATES debates are already running."""
+
+
 def start(debate_id: UUID) -> DebateBroadcast:
-    """Begin running a debate in the background, or return the running one."""
+    """Begin running a debate in the background, or return the running one.
+
+    Raises :class:`ArenaBusy` rather than queueing when the arena is full:
+    every running debate draws on the same key's per-minute budget, so one
+    more would only slow the others and risk rate-limiting all of them.
+    """
     existing = _broadcasts.get(debate_id)
     if existing is not None:
         return existing
+
+    limit = settings.MAX_CONCURRENT_DEBATES
+    if limit > 0 and len(_tasks) >= limit:
+        raise ArenaBusy(
+            f"{len(_tasks)} debates are already running. Try again in a minute."
+        )
 
     broadcast = DebateBroadcast()
     _broadcasts[debate_id] = broadcast
@@ -130,3 +149,22 @@ def _schedule_eviction(debate_id: UUID) -> None:
         asyncio.get_running_loop().call_later(BROADCAST_TTL, evict)
     except RuntimeError:
         evict()
+
+
+# Statuses a debate only holds while a process is actively running it.
+IN_FLIGHT = tuple(status for status in VALID_TRANSITIONS if status != "CREATED")
+
+
+async def fail_interrupted(db: AsyncSession) -> int:
+    """Mark debates a previous process left mid-run as FAILED.
+
+    A deploy or crash kills the in-memory runner, and nothing can resume a
+    debate from where it stopped — without this, those debates would show as
+    "still being argued" forever. Safe at startup because this process is the
+    only runner and has not started anything yet.
+    """
+    result = await db.execute(
+        update(Debate).where(Debate.status.in_(IN_FLIGHT)).values(status="FAILED")
+    )
+    await db.commit()
+    return result.rowcount or 0

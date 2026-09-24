@@ -34,6 +34,7 @@ export function PastDebates() {
     <main className="page">
       <header className="masthead">
         <h1 className="masthead-title display">Past debates</h1>
+        <p className="masthead-tagline">Only this browser can see them.</p>
       </header>
 
       {error && <p className="error">{error}</p>}

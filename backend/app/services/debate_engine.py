@@ -103,6 +103,7 @@ class DebateEngine:
         *,
         topic: str,
         participant_friend_ids: list[UUID],
+        owner_key: str | None = None,
         model_provider: str,
         model_name: str,
         temperature: float,
@@ -114,12 +115,16 @@ class DebateEngine:
         Anonymized judge labels are assigned here, in randomized order, so the
         judge's "Participant A" is as likely to be the second friend as the
         first. This is the debate's only source of judge-facing ordering.
+
+        `owner_key` is the visitor who may see the debate; without one it is
+        visible to nobody.
         """
         if len(participant_friend_ids) != 2:
             raise ValueError("A debate needs exactly two participants")
 
         debate = Debate(
             topic=topic,
+            owner_key=owner_key,
             model_provider=model_provider,
             model_name=model_name,
             temperature=temperature,

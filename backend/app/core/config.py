@@ -119,9 +119,63 @@ class Settings(BaseSettings):
 
     SQL_ECHO: bool = False
 
+    # "production" switches on everything a public deployment needs and a
+    # laptop does not: Secure cookies, HSTS and a content security policy,
+    # no interactive API docs, and no blanket CORS allowance for loopback.
+    ENVIRONMENT: str = "development"
+
+    # The built frontend (`frontend/dist`) to serve from this process, so the
+    # page and the API share one origin and the visitor cookie is first-party.
+    # Empty means the API serves only /api, as in development.
+    STATIC_DIR: str = ""
+
+    # Every visitor gets an anonymous id in an HttpOnly cookie, and everything
+    # they create is visible only to that id. Empty COOKIE_SECURE follows the
+    # environment: on in production, off on plain-HTTP localhost. SameSite
+    # "none" is only for a frontend on a different site, and forces Secure.
+    OWNER_COOKIE_NAME: str = "pa_owner"
+    COOKIE_SECURE: bool | None = None
+    COOKIE_SAMESITE: str = "lax"
+
+    # Abuse limits, per client IP per rolling hour. Every compile is a model
+    # call and every debate is nine, all paid for by one API key, so without
+    # these a single script can spend the whole quota. 0 disables a limit.
+    RATE_LIMIT_FRIENDS_PER_HOUR: int = 30
+    RATE_LIMIT_COMPILES_PER_HOUR: int = 20
+    RATE_LIMIT_DEBATES_PER_HOUR: int = 6
+
+    # Debates running at once across every visitor. They share one key's
+    # per-minute budget, so past a handful each one only slows the others.
+    MAX_CONCURRENT_DEBATES: int = 3
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() == "production"
+
+    @property
+    def cookie_samesite(self) -> str:
+        value = self.COOKIE_SAMESITE.strip().lower()
+        return value if value in {"lax", "strict", "none"} else "lax"
+
+    @property
+    def cookie_secure(self) -> bool:
+        # Browsers drop a SameSite=None cookie that is not also Secure.
+        if self.cookie_samesite == "none":
+            return True
+        if self.COOKIE_SECURE is None:
+            return self.is_production
+        return self.COOKIE_SECURE
+
+    @field_validator("COOKIE_SECURE", mode="before")
+    @classmethod
+    def blank_cookie_secure(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("GEMINI_THINKING_BUDGET", mode="before")
     @classmethod
@@ -142,14 +196,38 @@ class Settings(BaseSettings):
         if not v or v.startswith("http://") or v.startswith("https://"):
             return "sqlite+aiosqlite:///./persona_arena.db"
         if v.startswith("postgres://"):
-            return v.replace("postgres://", "postgresql+asyncpg://", 1)
-        if v.startswith("postgresql://"):
-            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgresql://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgresql+asyncpg://"):
+            v = _asyncpg_query(v)
         return v
 
     class Config:
         env_file = ENV_FILE
         extra = "ignore"
+
+
+def _asyncpg_query(url: str) -> str:
+    """Translate libpq query options into the ones asyncpg accepts.
+
+    Hosted Postgres (Neon, Render, Supabase) hands out URLs ending in
+    `?sslmode=require&channel_binding=require`. asyncpg spells the first
+    `ssl` and does not know the second, and SQLAlchemy passes unknown query
+    options straight to `connect()` — so the URL a provider gives you is a
+    startup crash unless it is rewritten here.
+    """
+    base, _, query = url.partition("?")
+    if not query:
+        return url
+    kept = []
+    for part in query.split("&"):
+        key, _, value = part.partition("=")
+        if key == "sslmode":
+            kept.append(f"ssl={value}")
+        elif key != "channel_binding":
+            kept.append(part)
+    return f"{base}?{'&'.join(kept)}" if kept else base
 
 
 settings = Settings()

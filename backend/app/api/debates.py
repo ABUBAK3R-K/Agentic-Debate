@@ -1,4 +1,9 @@
-"""Debate routes: create, start, watch, and read the verdict."""
+"""Debate routes: create, start, watch, and read the verdict.
+
+Every debate belongs to the visitor who set it up (app.core.identity). For
+anyone else each route answers 404, the same as for an id that was never
+issued.
+"""
 
 from uuid import UUID
 
@@ -9,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.identity import current_owner
+from app.core.security import rate_limited
 from app.llm.factory import get_llm_provider
 from app.models import Debate, DebateParticipant, Evaluation, Friend
 from app.schemas import (
@@ -21,7 +28,7 @@ from app.schemas import (
     ParticipantResult,
     ParticipantScore,
 )
-from app.services import debate_runner, history_service
+from app.services import debate_runner, friend_service, history_service
 from app.services.debate_engine import DebateEngine
 
 router = APIRouter(prefix="/api/debates", tags=["debates"])
@@ -33,8 +40,8 @@ SSE_HEADERS = {
 }
 
 
-async def _load_debate(debate_id: UUID, db: AsyncSession) -> Debate:
-    debate = await db.get(Debate, debate_id)
+async def _load_debate(debate_id: UUID, owner: str, db: AsyncSession) -> Debate:
+    debate = await history_service.get_owned_debate(debate_id, owner, db)
     if debate is None:
         raise HTTPException(status_code=404, detail="Debate not found")
     return debate
@@ -75,15 +82,22 @@ async def _debate_response(debate: Debate, db: AsyncSession) -> DebateResponse:
 
 
 @router.get("", response_model=list[DebateSummary])
-async def list_debates(db: AsyncSession = Depends(get_db)):
-    """Past debates, newest first."""
-    return await history_service.list_debates(db)
+async def list_debates(
+    owner: str = Depends(current_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """The visitor's past debates, newest first."""
+    return await history_service.list_debates(owner, db)
 
 
 @router.get("/{debate_id}", response_model=DebateTranscriptResponse)
-async def get_debate(debate_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_debate(
+    debate_id: UUID,
+    owner: str = Depends(current_owner),
+    db: AsyncSession = Depends(get_db),
+):
     """A saved debate with every turn as it was argued."""
-    transcript = await history_service.get_transcript(debate_id, db)
+    transcript = await history_service.get_transcript(debate_id, owner, db)
     if transcript is None:
         raise HTTPException(status_code=404, detail="Debate not found")
     return transcript
@@ -92,15 +106,17 @@ async def get_debate(debate_id: UUID, db: AsyncSession = Depends(get_db)):
 @router.post("", response_model=DebateResponse, status_code=201)
 async def create_debate(
     data: DebateCreateRequest,
+    owner: str = Depends(current_owner),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a debate between exactly two friends.
 
+    Each debater is one of the visitor's own friends or a public figure.
     Model settings come from the environment and are stored on the debate, so
     a debate always records the configuration it actually ran under.
     """
     for friend_id in data.participant_ids:
-        if await db.get(Friend, friend_id) is None:
+        if await friend_service.get_visible_friend(friend_id, owner, db) is None:
             raise HTTPException(status_code=404, detail=f"Friend {friend_id} not found")
 
     if len(set(data.participant_ids)) != 2:
@@ -112,6 +128,7 @@ async def create_debate(
     debate = await engine.create_debate(
         topic=data.topic,
         participant_friend_ids=data.participant_ids,
+        owner_key=owner,
         model_provider=settings.LLM_PROVIDER,
         model_name=settings.LLM_MODEL,
         temperature=settings.DEBATE_TEMPERATURE,
@@ -121,13 +138,21 @@ async def create_debate(
     return await _debate_response(debate, db)
 
 
-@router.post("/{debate_id}/start", status_code=202)
-async def start_debate(debate_id: UUID, db: AsyncSession = Depends(get_db)):
+@router.post(
+    "/{debate_id}/start",
+    status_code=202,
+    dependencies=[Depends(rate_limited("debates", "RATE_LIMIT_DEBATES_PER_HOUR"))],
+)
+async def start_debate(
+    debate_id: UUID,
+    owner: str = Depends(current_owner),
+    db: AsyncSession = Depends(get_db),
+):
     """Start running a debate in the background.
 
     Returns immediately; watch it at `GET /api/debates/{id}/stream`.
     """
-    debate = await _load_debate(debate_id, db)
+    debate = await _load_debate(debate_id, owner, db)
 
     if debate.status != "CREATED" and debate_runner.get_broadcast(debate_id) is None:
         raise HTTPException(
@@ -135,14 +160,23 @@ async def start_debate(debate_id: UUID, db: AsyncSession = Depends(get_db)):
             detail=f"Debate cannot be started from status '{debate.status}'",
         )
 
-    debate_runner.start(debate_id)
+    try:
+        debate_runner.start(debate_id)
+    except debate_runner.ArenaBusy as exc:
+        raise HTTPException(
+            status_code=503, detail=str(exc), headers={"Retry-After": "60"}
+        )
     return {"debate_id": str(debate_id), "status": "RUNNING"}
 
 
 @router.get("/{debate_id}/stream")
-async def stream_debate(debate_id: UUID, db: AsyncSession = Depends(get_db)):
+async def stream_debate(
+    debate_id: UUID,
+    owner: str = Depends(current_owner),
+    db: AsyncSession = Depends(get_db),
+):
     """Server-sent events for a running debate, from its first event on."""
-    await _load_debate(debate_id, db)
+    await _load_debate(debate_id, owner, db)
 
     broadcast = debate_runner.get_broadcast(debate_id)
     if broadcast is None:
@@ -162,9 +196,13 @@ async def stream_debate(debate_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{debate_id}/result", response_model=DebateResultResponse)
-async def get_debate_result(debate_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_debate_result(
+    debate_id: UUID,
+    owner: str = Depends(current_owner),
+    db: AsyncSession = Depends(get_db),
+):
     """The verdict for a finished debate."""
-    debate = await _load_debate(debate_id, db)
+    debate = await _load_debate(debate_id, owner, db)
 
     result = await db.execute(
         select(Evaluation).where(Evaluation.debate_id == debate_id)

@@ -94,9 +94,10 @@ export function SavedDebate() {
           </Link>
         )}
         <SimulationNotice>
-          A simulation of the personas you described, not the people themselves.
-          Both sides ran on the same model with the same settings — only the
-          persona and the assigned side differed.
+          A simulation of the personas, not the people themselves — a public
+          figure here was played from their public image and never spoke for
+          them. Both sides ran on the same model with the same settings; only
+          the persona and the assigned side differed.
         </SimulationNotice>
       </footer>
     </main>

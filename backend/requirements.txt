@@ -1,14 +1,16 @@
-fastapi[standard]
-pydantic
-pydantic-settings
-sqlalchemy
-alembic
-asyncpg
-psycopg2-binary
-aiosqlite
-httpx
-uvicorn
-
-# Tests
-pytest
-pytest-asyncio
+# Runtime dependencies, pinned to the versions the test suite last passed on.
+# pip-audit found no known vulnerabilities in this set on 2026-09-24; rerun
+# `python -m pip_audit -r requirements.txt` before bumping or deploying.
+#
+# Plain `fastapi` rather than `fastapi[standard]`: the extras (CLI, form
+# parsing, templating, email validation) are unused here, and every unused
+# package in a public image is surface with no benefit.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+sqlalchemy==2.0.54
+alembic==1.20.0
+asyncpg==0.31.0
+aiosqlite==0.22.1
+httpx==0.28.1

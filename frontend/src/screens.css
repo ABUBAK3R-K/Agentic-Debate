@@ -371,20 +371,150 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.8rem clamp(1.25rem, 4vw, 2rem);
   background: var(--stage);
   border-bottom: 1px solid var(--rule);
 }
 
+/* The same measure and gutters as the wide pages and the landing sections,
+   so the name sits directly above the content's left edge at every width. */
+.site-header-inner {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 2.5vw, 1.75rem);
+  max-width: 76rem;
+  height: 3.75rem;
+  margin: 0 auto;
+  padding: 0 clamp(1.25rem, 4vw, 2rem);
+}
+
 .site-name {
-  font-size: 1.4rem;
+  margin-right: auto;
+  font-size: 1.6rem;
+  line-height: 1;
   color: var(--text);
   text-decoration: none;
+  white-space: nowrap;
 }
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 2.5vw, 1.75rem);
+}
+
+/* The current page is marked with the same hairline its hover uses — not a
+   pill, not a colour. */
+.site-link {
+  padding: 0.35rem 0 0.2rem;
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  white-space: nowrap;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.site-link:hover { color: var(--text); border-bottom-color: var(--text-muted); }
+
+.site-link[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+/* The one action in the bar, so the one thing shaped like a button. */
+.site-cta {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.site-menu-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-right: -0.6rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Two bars, or a cross when open. Swapped, not animated. */
+.menu-icon {
+  position: relative;
+  display: block;
+  width: 1.25rem;
+  height: 0.6rem;
+}
+
+.menu-icon::before,
+.menu-icon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: currentColor;
+}
+
+.menu-icon::before { top: 0; }
+.menu-icon::after { bottom: 0; }
+
+.menu-icon[data-open]::before { top: calc(50% - 1px); transform: rotate(45deg); }
+.menu-icon[data-open]::after { bottom: calc(50% - 1px); transform: rotate(-45deg); }
+
+/* Laid over the page rather than pushing it down, so opening the menu never
+   moves the text you were reading. */
+.site-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  display: none;
+  flex-direction: column;
+  padding: 0.25rem clamp(1.25rem, 4vw, 2rem) 1rem;
+  background: var(--stage);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.site-menu-link {
+  padding: 0.95rem 0 0.95rem 0.85rem;
+  border-top: 1px solid var(--rule);
+  border-left: 2px solid transparent;
+  font-size: 1rem;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.site-menu-link:first-child { border-top: none; }
+.site-menu-link:hover { color: var(--text); }
+.site-menu-new { display: none; }
+
+.site-menu-link[aria-current="page"] {
+  color: var(--text);
+  border-left-color: var(--text);
+}
+
+/* Phones: one row — name, the new-debate button, the menu toggle. */
+@media (max-width: 640px) {
+  .site-header-inner { height: 3.5rem; gap: 0.75rem; }
+  .site-name { font-size: 1.45rem; }
+  .site-nav { display: none; }
+  .site-menu-toggle { display: inline-flex; }
+  .site-menu { display: flex; }
+}
+
+/* The narrowest phones keep the button in the menu instead of the bar. */
+@media (max-width: 359px) {
+  .site-cta { display: none; }
+  .site-menu-new { display: block; }
+}
+
+/* A plain text link styled like the header's, used inline on pages. */
 
 .site-home {
   font-size: 0.9375rem;
@@ -567,31 +697,6 @@
 }
 
 /* --------------------------------------------------------------------------
-   Site navigation — the header's destinations. The current page is marked
-   with the same hairline its hover state uses, not a pill or a colour.
-   -------------------------------------------------------------------------- */
-
-.site-nav {
-  display: flex;
-  align-items: baseline;
-  gap: clamp(0.9rem, 2.5vw, 1.6rem);
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.site-home[aria-current="page"] {
-  color: var(--text);
-  border-bottom-color: var(--text);
-}
-
-/* On a phone the destinations take their own line under the name rather
-   than running off the edge of the screen. */
-@media (max-width: 560px) {
-  .site-header { flex-wrap: wrap; row-gap: 0.5rem; }
-  .site-nav { width: 100%; justify-content: flex-start; }
-}
-
-/* --------------------------------------------------------------------------
    The record — past debates as a ruled list, one row per motion.
    -------------------------------------------------------------------------- */
 
@@ -746,4 +851,169 @@
     grid-template-areas: "name" "traits" "meta";
     row-gap: 0.2rem;
   }
+}
+
+/* --------------------------------------------------------------------------
+   Public figures — shared personas, read in place and opened on demand.
+   A ruled list like the saved-persona picker, not a grid of cards; the
+   category choice uses the same hairline marker as the source options.
+   -------------------------------------------------------------------------- */
+
+.persona-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.persona-section .section-heading { margin-bottom: 0; }
+.persona-section .corner-source { margin-bottom: 0; }
+
+.tags-static { cursor: default; }
+
+.figure-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.figure { border-bottom: 1px solid var(--rule); }
+
+.figure-summary {
+  display: grid;
+  grid-template-columns: minmax(7rem, 13rem) 1fr;
+  grid-template-areas: "name traits" "name hint";
+  column-gap: 1rem;
+  align-items: baseline;
+  padding: 0.9rem 0.25rem;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color 120ms ease;
+}
+
+.figure-summary::-webkit-details-marker { display: none; }
+.figure-summary:hover,
+.figure[open] > .figure-summary { background: var(--panel); }
+
+.figure-summary .saved-name { grid-area: name; }
+.figure-summary .saved-traits { grid-area: traits; }
+
+/* Says what the row does, in words, where a disclosure triangle would sit. */
+.figure-summary::after {
+  grid-area: hint;
+  content: 'Show the persona';
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.figure[open] > .figure-summary::after { content: 'Hide the persona'; }
+
+.figure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem 0 1.75rem;
+}
+
+.figure-body .sheet { margin-bottom: 0; }
+
+@media (max-width: 560px) {
+  .figure-summary {
+    grid-template-columns: 1fr;
+    grid-template-areas: "name" "traits" "hint";
+    row-gap: 0.2rem;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Persona sheet pairs — a label and its value travel together.
+   -------------------------------------------------------------------------- */
+
+.sheet-value { column-gap: 1rem; row-gap: 0.25rem; }
+
+.sheet-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.sheet-pair > .sheet-sep { flex-shrink: 0; margin-left: 0; }
+
+/* --------------------------------------------------------------------------
+   Category tabs — the same hairline marker as the source options, on one
+   line; a phone scrolls them sideways rather than wrapping one onto its own.
+   -------------------------------------------------------------------------- */
+
+.category-tabs {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.category-tabs::-webkit-scrollbar { display: none; }
+.category-tabs .source-option { white-space: nowrap; flex-shrink: 0; }
+.persona-section .category-tabs { margin-bottom: 0; }
+
+/* --------------------------------------------------------------------------
+   Thinking, placed.
+   -------------------------------------------------------------------------- */
+
+.corner-thinking { margin-top: 0.9rem; }
+.judging { margin-top: -0.5rem; }
+
+/* --------------------------------------------------------------------------
+   Phones. Choices become an even row of tabs, and the buttons a thumb is
+   actually aiming for fill the width.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 560px) {
+  .page { gap: 2rem; }
+
+  .corner-source {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    column-gap: 0.9rem;
+    align-items: end;
+  }
+
+  .corner-source .source-option {
+    text-align: left;
+    line-height: 1.3;
+    padding-bottom: 0.4rem;
+  }
+
+  .category-tabs { gap: 1.1rem; }
+
+  /* A list that scrolls inside a page that scrolls is a trap on a phone;
+     let it run the length of the page instead. */
+  .saved-list { max-height: none; overflow: visible; }
+
+  .sheet-value {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .corner-form .button,
+  .start-button,
+  .corner-actions .button,
+  .topic-controls .button,
+  .persona-compile,
+  .empty .button,
+  .verdict-body > .button,
+  .saved-footer .button,
+  .debate-error .button {
+    width: 100%;
+  }
+
+  .corner-form { align-items: stretch; }
+  .corner-thinking,
+  .thinking.start-button { width: auto; }
+
+  .masthead-title { font-size: clamp(2.4rem, 11vw, 3rem); }
+  .motion { margin-top: -0.5rem; }
 }

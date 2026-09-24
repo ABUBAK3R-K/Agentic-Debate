@@ -2,16 +2,18 @@
 
 **Same model. Different minds.**
 
-Describe two friends' personalities in plain English. PersonaArena compiles each
-description into a structured persona, runs a four-round debate between them —
-both agents driven by the *same* model with the *same* settings — and then hands
-the transcript to an independent judge that never learns whose argument is whose.
+Describe two friends' personalities in plain English, or pick two public
+figures. PersonaArena compiles each into a structured persona, runs a four-round
+debate between them — both agents driven by the *same* model with the *same*
+settings — and then hands the transcript to an independent judge that never
+learns whose argument is whose.
 
 The question the product is built around: can one underlying model hold two
 genuinely distinct personalities apart, under pressure, across four rounds?
 
-> Everything the arena produces is a fictional simulation based only on what the
-> user wrote. It never claims to represent what a real person thinks.
+> Everything the arena produces is a fictional simulation — of what the user
+> wrote, or of a public figure's public image. It never claims to represent what
+> a real person thinks.
 
 ---
 
@@ -67,6 +69,28 @@ topic, the personas and the full transcript, but sees the debaters only as
 backend maps the result back to friend IDs afterwards. Scores come back per
 participant across logic, evidence, rebuttal and persuasiveness.
 
+### Private by default, no accounts
+
+Each browser is issued an anonymous id in an `HttpOnly`, `SameSite=Lax` cookie
+the first time it calls the API, and every friend, persona and debate it creates
+is stamped with a SHA-256 of that id. Everything is scoped to it: another
+browser cannot list, read, edit, compile, start or stream what this one made,
+and gets the same 404 as for an id that never existed. The database never holds
+the token itself. The trade-off is the usual one for anonymous sessions:
+clearing site data or switching devices starts an empty arena.
+
+### Public figures
+
+Twenty shared personas — Indian cinema, Hollywood, cricket and football — are
+seeded at startup from `backend/app/data/public_figures.json`, so a visitor can
+set, say, Dhoni against Kohli and judge whether the simulation argues the way
+they come across. Each is written from public image only: interviews, press
+conferences, on screen and on the field. Nothing about private life, health,
+politics or controversies, and no trait that would name the person to the blind
+judge. They are read-only for everyone; editing one on the setup screen saves
+the visitor's own private copy. Reseeding is idempotent, and a changed entry
+becomes a new persona version.
+
 ### Identical settings, by construction
 
 Model, temperature, top-p and max tokens come from environment variables, are
@@ -85,7 +109,8 @@ configuration it ran under.
 | Database | PostgreSQL via asyncpg; SQLite via aiosqlite for local runs and tests |
 | Providers | OpenAI and Gemini behind one `LLMProvider` abstraction |
 | Frontend | React 19, Vite, React Router, Axios, hand-written CSS design tokens |
-| Tests | pytest + pytest-asyncio — 115 tests, no network, no Postgres |
+| Tests | pytest + pytest-asyncio — 236 tests, no network, no Postgres |
+| Deploy | One Docker image (API + built frontend), Alembic migrations |
 
 ---
 
@@ -100,12 +125,18 @@ backend/app/
                output recovery, transport pacing, error redaction
   models/      SQLAlchemy ORM
   schemas/     Pydantic request/response + structured LLM output
-  core/        config (env settings), database (async engine/session)
+  core/        config (env settings), database (async engine/session),
+               identity (visitor cookie), security (headers, rate limits),
+               frontend (serving the built SPA)
+  data/        public_figures.json — the seeded public-figure personas
+backend/alembic/ migrations; `alembic upgrade head` creates the schema
 backend/tests/ pytest suite; fakes.py holds the scripted FakeLLM
 
 frontend/src/
-  pages/       Setup, LiveDebate, Verdict — exactly three
-  components/  SiteHeader, Aisle, PersonaSheet, SimulationNotice
+  pages/       Landing, Setup, LiveDebate, Verdict, PastDebates,
+               SavedDebate, Personas
+  components/  SiteHeader, Aisle, PersonaSheet, SimulationNotice,
+               TranscriptSide
   services/    Axios API client
   hooks/       useDebateStream — the SSE reducer
   index.css    Design tokens and primitives
@@ -153,10 +184,12 @@ you still see 429s; set it to `0` on a paid key.
 From `backend/` — dependencies live in `backend/.venv`:
 
 ```bash
-.venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe init_db.py                       # create tables
+.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+.venv/Scripts/python.exe -m alembic upgrade head          # create tables
 .venv/Scripts/python.exe -m uvicorn app.main:app --reload # http://localhost:8000
 ```
+
+The public figures are written into the database when the server starts.
 
 On macOS or Linux the interpreter is `.venv/bin/python` instead.
 
@@ -175,8 +208,9 @@ npm run dev        # http://localhost:5173
 ### 4. Tests
 
 ```bash
-cd backend && .venv/Scripts/python.exe -m pytest     # 115 tests
-cd frontend && npm run lint                          # oxlint
+cd backend && .venv/Scripts/python.exe -m pytest     # 236 tests
+cd backend && .venv/Scripts/python.exe -m pip_audit -r requirements.txt
+cd frontend && npm run lint && npm audit
 ```
 
 The suite runs against in-memory SQLite and a scripted `FakeLLM`, so it never
@@ -198,7 +232,14 @@ touches Postgres or a provider and needs no API key.
 | `GET` | `/api/debates/{id}/result` | The verdict for a finished debate |
 | `GET` | `/api/health` | Liveness |
 
-Interactive docs at `http://localhost:8000/docs` while the server runs.
+Every route except health is scoped to the calling browser's visitor cookie.
+`GET /api/personas` returns the visitor's own personas followed by the public
+figures (`is_public: true`, with a `category`). Creating friends, compiling and
+starting debates are rate-limited per client IP and answer `429` with
+`Retry-After`; a full arena answers `503`.
+
+Interactive docs at `http://localhost:8000/docs` in development. Production
+does not publish them.
 
 ### Persona shape
 
@@ -221,8 +262,50 @@ then stored.
 
 ### Data model
 
-`friends` · `personas` · `debates` · `debate_participants` ·
-`debate_messages` · `evaluations`
+`friends`, `personas`, `debates`, `debate_participants`, `debate_messages`,
+`evaluations`. `friends` and `debates` carry `owner_key` (the visitor); public
+figures are `friends` rows with `is_public` and a `category`.
+
+---
+
+## Deploying
+
+The repo builds into **one container**: the frontend is compiled in a Node
+stage and served by the API from the same origin, which keeps the visitor
+cookie first-party. On start it runs `alembic upgrade head`, marks any debate a
+previous process was cut off in as failed, seeds the public figures, and serves
+on `$PORT` as a non-root user.
+
+```bash
+docker build -t persona-arena .
+docker run -p 8000:8000 --env-file .env -e DATABASE_URL=postgresql://... persona-arena
+```
+
+Or with a bundled Postgres: set `POSTGRES_PASSWORD` in `.env`, run
+`docker compose up --build`, and open `http://localhost:8000`.
+
+On a platform (Render, Railway, Fly.io, Cloud Run), point it at the
+`Dockerfile`, attach a managed Postgres, and set the variables below. The image
+already sets `ENVIRONMENT=production` and `STATIC_DIR`.
+
+| Variable | Needed | Notes |
+|---|---|---|
+| `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL` | yes | Plus `LLM_BASE_URL` for OpenAI-compatible providers |
+| `DATABASE_URL` | yes | Postgres. The provider's URL works as given, `sslmode` included |
+| `RATE_LIMIT_*`, `MAX_CONCURRENT_DEBATES` | tune | Per-IP hourly limits, and the cap on debates running at once |
+| `FORWARDED_ALLOW_IPS` | maybe | Image default `*` suits a platform proxy; on a bare VPS set your proxy's IP |
+
+Before going live:
+
+- **Run exactly one instance with one worker.** Running debates live in the
+  process's memory, so a second replica would answer stream requests for
+  debates it is not running.
+- **Serve over HTTPS.** Production cookies are `Secure`, and HSTS is sent.
+- **Put a spending cap on the provider key.** The per-IP limits slow abuse, but
+  cannot stop someone rotating addresses; the provider's budget cap is the
+  backstop.
+- **SQLite is for demos only.** Most platforms wipe a container's disk on
+  every deploy.
 
 ---
 
@@ -274,17 +357,18 @@ These are enforced in review and, where possible, in tests:
 
 The MVP is exactly: two friends → persona compiler with user review → one debate
 of four fixed rounds → live SSE streaming → independent blind judge →
-persistence of all of it.
+persistence of all of it — plus, at the user's request, past debates and saved
+personas, per-browser privacy, and the seeded public figures.
 
 Deliberately **not** built yet, and not scaffolded either — no placeholder
 routes, no disabled UI:
 
-- Debate history and replay
+- Live replay of a finished debate
 - Persona-consistency evaluator and its dashboard
 - Three-participant debates, topic categories, configurable rounds/temperature
   in the UI
 - Observability logging, prompt versioning
 - Research/experiment mode and batch benchmarking
-- Authentication
+- Accounts and sign-in (privacy is per browser for now)
 
 See "Later" in `PRD.md`.

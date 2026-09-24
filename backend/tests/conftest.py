@@ -13,6 +13,13 @@ os.environ.setdefault("LLM_API_KEY", "test-key")
 # long the pacer holds a test. Environment variables win over .env.
 os.environ.setdefault("GEMINI_THINKING_LEVEL", "")
 os.environ.setdefault("LLM_REQUESTS_PER_MINUTE", "0")
+# Abuse limits are process-wide and would trip across a suite that creates
+# friends in nearly every test. The limit tests switch them back on.
+os.environ.setdefault("RATE_LIMIT_FRIENDS_PER_HOUR", "0")
+os.environ.setdefault("RATE_LIMIT_COMPILES_PER_HOUR", "0")
+os.environ.setdefault("RATE_LIMIT_DEBATES_PER_HOUR", "0")
+os.environ.setdefault("ENVIRONMENT", "development")
+os.environ.setdefault("STATIC_DIR", "")
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

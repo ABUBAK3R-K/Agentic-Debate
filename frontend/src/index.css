@@ -52,6 +52,10 @@ html, body, #root {
   min-height: 100%;
 }
 
+/* Anything scrolled into view — by focus, by a link — stops below the
+   sticky header instead of underneath it. */
+html { scroll-padding-top: 4.75rem; }
+
 body {
   margin: 0;
   background: var(--stage);
@@ -69,6 +73,10 @@ h1, h2, h3 {
   letter-spacing: 0.01em;
   margin: 0;
 }
+
+/* Display type runs large; a long name on a narrow phone breaks inside the
+   word as a last resort rather than running off the screen. */
+h1, h2, h3, .display { overflow-wrap: break-word; }
 
 p { margin: 0; }
 
@@ -192,6 +200,85 @@ textarea.field { resize: vertical; min-height: 8rem; }
 }
 
 @keyframes caret-blink { to { opacity: 0; } }
+
+/* --------------------------------------------------------------------------
+   Thinking — the model is working and nothing has arrived yet. A pixel grid
+   with a wavefront, a shimmering label, an elapsed timer. Takes its ink from
+   the nearest [data-position], like the caret. The timer is body type with
+   tabular figures, not monospace: two families only.
+   -------------------------------------------------------------------------- */
+
+.thinking {
+  --thinking-ink: var(--position-text, var(--text));
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 1.5rem;
+}
+
+.thinking-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
+  flex-shrink: 0;
+}
+
+.thinking-cell {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--thinking-ink);
+  opacity: 0.15;
+  animation: pixel-on 650ms ease-in-out infinite;
+}
+
+.thinking-cell[data-idle] {
+  opacity: 0.07;
+  animation: none;
+}
+
+.thinking-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--text-muted) 35%,
+    var(--thinking-ink) 50%,
+    var(--text-muted) 65%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer-text 1.4s linear infinite;
+}
+
+.thinking-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pixel-on {
+  0%, 100% { opacity: 0.15; }
+  30% { opacity: 1; }
+  60% { opacity: 0.15; }
+}
+
+/* The highlight enters from off the left edge and leaves off the right. */
+@keyframes shimmer-text {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-cell { animation: none; }
+  .thinking-label {
+    animation: none;
+    background: none;
+    color: var(--text-muted);
+  }
+}
 
 /* --------------------------------------------------------------------------
    The aisle. Two sides, a real rule between them, stacking on narrow screens
